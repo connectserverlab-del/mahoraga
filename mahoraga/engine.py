@@ -79,8 +79,20 @@ def _proxy_args() -> list[str]:
 
 
 def build_browser(settings: Settings):
-    """Create a BrowserSession, preferring a locally installed Chromium."""
+    """Create a BrowserSession.
+
+    When a BrowserOS kernel is configured (``settings.cdp_url``), attach to that
+    already-running browser over CDP and let it own the browser lifecycle. This
+    is the kernel boundary: Mahoraga drives pages but never launches or kills
+    the browser. Otherwise, launch a local Chromium ourselves.
+    """
     from browser_use import BrowserSession
+
+    if settings.uses_kernel:
+        logger.info("Attaching to BrowserOS kernel at %s", settings.cdp_url)
+        # is_local=False keeps Browser Use from trying to manage (kill) a
+        # browser process it did not start.
+        return BrowserSession(cdp_url=settings.cdp_url, is_local=False)
 
     kwargs: dict = {
         "headless": settings.headless,

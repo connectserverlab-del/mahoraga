@@ -1,7 +1,12 @@
 # Mahoraga
 
 Adaptive web automation agent powered by [Browser Use](https://github.com/browser-use/browser-use).
-Give it a task in plain English and it drives a real Chromium browser to complete it.
+Give it a task in plain English and it drives a real browser to complete it.
+
+Mahoraga is a layered stack: an **n8n** workflow engine orchestrates tasks, the
+**Mahoraga service** turns them into browser work, and a **BrowserOS kernel**
+mediates every browser action down to Chrome / Edge / Firefox. You can use just
+the CLI, or run the whole stack — see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Setup
 
@@ -37,6 +42,41 @@ mahoraga --headed "Fill out the contact form on example.com"
 The agent's final answer is printed to stdout, so it composes with shell
 pipelines; progress logs go to stderr.
 
+### HTTP service (for n8n and other orchestrators)
+
+```bash
+mahoraga serve --host 0.0.0.0 --port 8080
+```
+
+- `GET /health`
+- `POST /v1/tasks` — body `{ "task": "...", "provider": "...", "max_steps": 30, "cdp_url": "..." }`,
+  returns `{ success, result, provider, model, kernel }`. Set `MAHORAGA_API_KEY`
+  to require an `X-API-Key` header.
+
+### n8n workflow engine
+
+The [`n8n-nodes-mahoraga`](integrations/n8n-nodes-mahoraga) community node adds a
+**Mahoraga → Run Browser Task** step to n8n, so any workflow can dispatch an AI
+browser task. The bundled [`docker-compose.yml`](docker-compose.yml) brings up
+n8n + the service + a BrowserOS kernel together:
+
+```bash
+cd integrations/n8n-nodes-mahoraga && npm install && npm run build && cd -
+export ANTHROPIC_API_KEY=...
+docker compose up --build   # n8n at :5678, service at :8080
+```
+
+### BrowserOS kernel
+
+Point Mahoraga at a running BrowserOS (or any CDP-speaking browser) and it
+attaches over the DevTools Protocol instead of launching its own browser — the
+kernel owns the browser lifecycle:
+
+```bash
+mahoraga --cdp-url http://localhost:9222 "Summarize my open tabs"
+# or: export BROWSEROS_CDP_URL=http://localhost:9222
+```
+
 ### Python API
 
 ```python
@@ -62,6 +102,8 @@ matching CLI flag:
 | `MAHORAGA_MAX_STEPS` | `--max-steps` | `50` | Step budget per task |
 | `MAHORAGA_USE_VISION` | `--no-vision` (inverts) | `true` | Send screenshots to the LLM |
 | `MAHORAGA_CHROMIUM_PATH` | `--chromium-path` | auto-detected | Chromium/Chrome binary to use |
+| `BROWSEROS_CDP_URL` / `MAHORAGA_CDP_URL` | `--cdp-url` | none (launch local) | Attach to a BrowserOS kernel over CDP |
+| `MAHORAGA_API_KEY` | — | none | Require `X-API-Key` on the HTTP service |
 
 If a system Chromium is found (e.g. a Playwright install or `/usr/bin/chromium`),
 Mahoraga uses it instead of letting Browser Use download its own copy — handy in

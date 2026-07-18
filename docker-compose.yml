@@ -1,0 +1,68 @@
+# Mahoraga stack — the layered architecture, wired end to end:
+#
+#   n8n (Workflow Engine)  ──HTTP──▶  mahoraga (service)  ──Browser Use──▶
+#       browseros (kernel, CDP)  ──▶  Chrome / Edge / Firefox
+#
+# n8n orchestrates; the Mahoraga node calls the mahoraga service; the service
+# drives the BrowserOS kernel over the DevTools Protocol.
+
+services:
+  # ── BrowserOS kernel ──────────────────────────────────────────────────────
+  # BrowserOS is a Chromium-based agentic browser that exposes a CDP endpoint.
+  # Any CDP-speaking browser works as the kernel; this uses a headless Chromium
+  # placeholder so the stack runs out of the box. Swap `image` for a BrowserOS
+  # image to use the real kernel.
+  browseros:
+    image: zenika/alpine-chrome:latest
+    command:
+      - --headless=new
+      - --no-sandbox
+      - --disable-gpu
+      - --remote-debugging-address=0.0.0.0
+      - --remote-debugging-port=9222
+      - about:blank
+    expose:
+      - "9222"
+    restart: unless-stopped
+
+  # ── Mahoraga service ──────────────────────────────────────────────────────
+  mahoraga:
+    build: .
+    environment:
+      # Drive the BrowserOS kernel instead of launching a local browser.
+      BROWSEROS_CDP_URL: "http://browseros:9222"
+      # Provide at least one LLM key (pass through from your shell / .env).
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+      MAHORAGA_LLM_PROVIDER: "${MAHORAGA_LLM_PROVIDER:-}"
+      # Optional: require this key on the API (the n8n credential must match).
+      MAHORAGA_API_KEY: "${MAHORAGA_API_KEY:-}"
+    expose:
+      - "8080"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - browseros
+    restart: unless-stopped
+
+  # ── n8n Workflow Engine ───────────────────────────────────────────────────
+  n8n:
+    image: n8nio/n8n:latest
+    environment:
+      N8N_PORT: "5678"
+      # Load the custom Mahoraga community node from the mounted build.
+      N8N_CUSTOM_EXTENSIONS: "/data/custom"
+      GENERIC_TIMEZONE: "UTC"
+    ports:
+      - "5678:5678"
+    volumes:
+      - n8n_data:/home/node/.n8n
+      # Build integrations/n8n-nodes-mahoraga first (npm install && npm run build).
+      - ./integrations/n8n-nodes-mahoraga:/data/custom/n8n-nodes-mahoraga:ro
+    depends_on:
+      - mahoraga
+    restart: unless-stopped
+
+volumes:
+  n8n_data:

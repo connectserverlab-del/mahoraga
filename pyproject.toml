@@ -8,6 +8,9 @@ license = { text = "MIT" }
 dependencies = [
     "browser-use>=0.13",
     "python-dotenv>=1.0",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "pydantic>=2.0",
 ]
 
 [project.scripts]

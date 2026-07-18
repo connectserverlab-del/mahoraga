@@ -64,6 +64,21 @@ class Settings:
     chromium_path: str | None = field(
         default_factory=lambda: os.environ.get("MAHORAGA_CHROMIUM_PATH") or None
     )
+    # BrowserOS kernel: when set, Mahoraga attaches to this already-running
+    # browser over the Chrome DevTools Protocol instead of launching its own.
+    # BROWSEROS_CDP_URL is the preferred name; MAHORAGA_CDP_URL is an alias.
+    cdp_url: str | None = field(
+        default_factory=lambda: (
+            os.environ.get("BROWSEROS_CDP_URL")
+            or os.environ.get("MAHORAGA_CDP_URL")
+            or None
+        )
+    )
+
+    @property
+    def uses_kernel(self) -> bool:
+        """True when browser access is delegated to a BrowserOS/CDP kernel."""
+        return bool(self.cdp_url)
 
     def resolve(self) -> "Settings":
         """Fill in provider/model defaults and validate that a key exists."""
