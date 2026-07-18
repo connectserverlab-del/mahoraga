@@ -1,0 +1,46 @@
+{
+  "name": "mahoraga-cli",
+  "version": "0.2.0",
+  "description": "Command-line interface for controlling Mahoraga — launch and automate the browser from the terminal",
+  "bin": {
+    "mahoraga-cli": "bin/mahoraga-cli.js",
+    "bos": "bin/mahoraga-cli.js"
+  },
+  "scripts": {
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "keywords": [
+    "mahoraga",
+    "cli",
+    "browser",
+    "automation",
+    "mcp",
+    "ai-agent",
+    "model-context-protocol"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/connectserverlab-del/mahoraga.git",
+    "directory": "packages/mahoraga-agent/apps/cli/npm"
+  },
+  "homepage": "https://mahoraga.com",
+  "bugs": "https://github.com/connectserverlab-del/mahoraga/issues",
+  "license": "MIT",
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin/",
+    "scripts/",
+    "README.md"
+  ]
+}

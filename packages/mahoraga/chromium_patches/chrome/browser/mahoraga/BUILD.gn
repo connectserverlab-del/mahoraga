@@ -1,0 +1,43 @@
+diff --git a/chrome/browser/mahoraga/BUILD.gn b/chrome/browser/mahoraga/BUILD.gn
+new file mode 100644
+index 0000000000000..9b2f877bec910
+--- /dev/null
++++ b/chrome/browser/mahoraga/BUILD.gn
+@@ -0,0 +1,37 @@
++# Copyright 2024 The Chromium Authors
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++
++import("//build/buildflag_header.gni")
++import("//chrome/browser/mahoraga/buildflags.gni")
++
++# Master BUILD file for Mahoraga components.
++# This groups together all Mahoraga-related code that lives under
++# chrome/browser/mahoraga/.
++
++group("mahoraga") {
++  deps = [
++    "//chrome/browser/mahoraga/core",
++    "//chrome/browser/mahoraga/core:product",
++    "//chrome/browser/mahoraga/metrics",
++    "//chrome/browser/mahoraga/onboarding",
++    "//chrome/browser/mahoraga/server",
++  ]
++}
++
++# Selects the product identity (Mahoraga vs BrowserClaw) at build time.
++# See buildflags.gni for the `mahoraga_product` GN arg.
++buildflag_header("buildflags") {
++  header = "buildflags.h"
++  flags = [
++    "MAHORAGA_PRODUCT_MAHORAGA=$mahoraga_product_mahoraga",
++    "MAHORAGA_PRODUCT_BROWSERCLAW=$mahoraga_product_browserclaw",
++    "MAHORAGA_ALLOW_RUNTIME_PRODUCT_OVERRIDE=$mahoraga_allow_runtime_product_override",
++  ]
++}
++
++# Bundled extensions are copied separately to ensure they're available
++# in the output directory at runtime.
++group("mahoraga_bundled_extensions") {
++  deps = [ "//chrome/browser/mahoraga/bundled_extensions" ]
++}
