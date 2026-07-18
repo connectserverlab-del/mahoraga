@@ -1,0 +1,21 @@
+[project]
+name = "mahoraga"
+version = "0.1.0"
+description = "Adaptive web automation agent for Mahoraga, powered by Browser Use"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+    "browser-use>=0.13",
+    "python-dotenv>=1.0",
+]
+
+[project.scripts]
+mahoraga = "mahoraga.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mahoraga"]
