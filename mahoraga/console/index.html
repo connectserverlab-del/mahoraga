@@ -1,0 +1,408 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mahoraga — Wheel of Dharma</title>
+<style>
+  :root {
+    --bg: #0b0f14; --panel: #121821; --panel-2: #0e141c; --line: #1e2836;
+    --text: #dbe4ee; --muted: #7d8ea3; --accent: #38bdf8; --accent-2: #f472b6;
+    --ok: #4ade80; --warn: #fbbf24; --err: #f87171;
+    --radius: 12px; --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, sans-serif;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; align-items: center; gap: 14px; padding: 10px 16px;
+    border-bottom: 1px solid var(--line); background: var(--panel-2);
+  }
+  header .brand { display: flex; align-items: center; gap: 10px; }
+  header .brand b { font-size: 15px; letter-spacing: .3px; }
+  header .brand span { color: var(--muted); font-size: 12px; }
+  header .spacer { flex: 1; }
+  header input {
+    background: var(--panel); border: 1px solid var(--line); color: var(--text);
+    padding: 6px 9px; border-radius: 8px; font-size: 12px; width: 190px;
+  }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+  .dot.ok { background: var(--ok); } .dot.err { background: var(--err); }
+
+  main { flex: 1; display: grid; grid-template-columns: 340px 1fr 320px; min-height: 0; }
+  .col { display: flex; flex-direction: column; min-height: 0; border-right: 1px solid var(--line); }
+  .col:last-child { border-right: none; }
+  .col h2 {
+    margin: 0; padding: 12px 16px; font-size: 12px; text-transform: uppercase;
+    letter-spacing: .12em; color: var(--muted); border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .col .body { padding: 14px 16px; overflow: auto; flex: 1; }
+
+  label { display: block; font-size: 11px; color: var(--muted); margin: 12px 0 4px; text-transform: uppercase; letter-spacing: .08em; }
+  textarea, select, .col input[type=text] {
+    width: 100%; background: var(--panel); border: 1px solid var(--line);
+    color: var(--text); border-radius: 8px; padding: 9px 10px; font: inherit; resize: vertical;
+  }
+  textarea { min-height: 74px; }
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  button {
+    background: var(--panel); border: 1px solid var(--line); color: var(--text);
+    padding: 9px 12px; border-radius: 8px; cursor: pointer; font: inherit; transition: .12s;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: linear-gradient(135deg, var(--accent), #0ea5e9); color: #04121c; border: none; font-weight: 600; }
+  button.primary:hover { filter: brightness(1.08); }
+  button.ghost { background: transparent; }
+  button:disabled { opacity: .5; cursor: default; }
+
+  .outcome { margin-top: 14px; border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; background: var(--panel-2); }
+  .badge { display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .08em; padding: 2px 8px; border-radius: 20px; text-transform: uppercase; }
+  .badge.replay { background: rgba(56,189,248,.15); color: var(--accent); }
+  .badge.improvise { background: rgba(244,114,182,.15); color: var(--accent-2); }
+  .badge.crystallized { background: rgba(74,222,128,.14); color: var(--ok); }
+  .badge.manual { background: rgba(125,142,163,.16); color: var(--muted); }
+  .result { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; word-break: break-word; margin-top: 8px; color: #cfe0f0; }
+  .muted { color: var(--muted); }
+  .err { color: var(--err); }
+
+  /* Canvas */
+  .canvas-toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  .canvas-toolbar input[type=text] { width: 220px; }
+  #canvas-wrap { flex: 1; overflow: auto; position: relative; background:
+    radial-gradient(circle at 1px 1px, #16202c 1px, transparent 0) 0 0 / 22px 22px, var(--bg); }
+  svg#canvas { width: 100%; height: 100%; min-height: 420px; display: block; }
+  .node rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.5; }
+  .node.selected rect { stroke: var(--accent); stroke-width: 2; }
+  .node .ntype { fill: var(--accent); font: 700 10px var(--mono); letter-spacing: .1em; text-transform: uppercase; }
+  .node .nname { fill: var(--text); font: 13px system-ui; }
+  .node.agent rect { stroke: var(--accent-2); }
+  .node.agent .ntype { fill: var(--accent-2); }
+  .edge { stroke: #33455c; stroke-width: 2; fill: none; }
+  .empty { color: var(--muted); text-align: center; padding: 40px 20px; }
+
+  /* Inspector */
+  #inspector { border-top: 1px solid var(--line); padding: 12px 16px; background: var(--panel-2); max-height: 40%; overflow: auto; }
+  #inspector.hidden { display: none; }
+  #inspector textarea { min-height: 90px; font-family: var(--mono); font-size: 12px; }
+
+  /* Adaptations list */
+  .wheel-emblem { display: flex; justify-content: center; padding: 6px 0 12px; }
+  .wheel-emblem svg { animation: spin 14s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .wf { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; cursor: pointer; background: var(--panel-2); }
+  .wf:hover { border-color: var(--accent); }
+  .wf.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .wf .wf-name { font-weight: 600; margin-bottom: 4px; display: flex; justify-content: space-between; gap: 8px; }
+  .wf .wf-sig { font-family: var(--mono); font-size: 11px; color: var(--muted); word-break: break-all; }
+  .wf .wf-meta { display: flex; gap: 10px; align-items: center; margin-top: 8px; font-size: 11px; color: var(--muted); }
+  .wf .wf-meta .actions { margin-left: auto; display: flex; gap: 6px; }
+  .wf .wf-meta button { padding: 4px 8px; font-size: 11px; }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: var(--panel); border: 1px solid var(--line); padding: 10px 16px; border-radius: 10px; opacity: 0; transition: .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <svg width="26" height="26" viewBox="0 0 64 64"><circle cx="32" cy="32" r="18" fill="none" stroke="#38bdf8" stroke-width="3"/><path d="M32 14v36M14 32h36" stroke="#38bdf8" stroke-width="2" opacity=".5"/><circle cx="32" cy="32" r="5" fill="#38bdf8"/><circle cx="32" cy="14" r="3" fill="#f472b6"/><circle cx="50" cy="32" r="3" fill="#f472b6"/><circle cx="32" cy="50" r="3" fill="#f472b6"/><circle cx="14" cy="32" r="3" fill="#f472b6"/></svg>
+    <b>Mahoraga</b><span>Wheel of Dharma console</span>
+  </div>
+  <div class="spacer"></div>
+  <input id="apikey" type="password" placeholder="API key (if set)" />
+  <div class="dot" id="health" title="service health"></div>
+</header>
+
+<main>
+  <!-- Column 1: Turn the Wheel -->
+  <section class="col">
+    <h2>Turn the Wheel</h2>
+    <div class="body">
+      <p class="muted" style="margin-top:0">Give Mahoraga a task. If it has adapted before, the Wheel <b>replays</b> a workflow. If not, it <b>improvises</b> and crystallizes a new one.</p>
+      <label>Task</label>
+      <textarea id="task" placeholder="Go to https://example.com and report the main heading"></textarea>
+      <div class="row">
+        <div>
+          <label>Provider</label>
+          <select id="provider">
+            <option value="">auto</option>
+            <option>anthropic</option><option>openai</option><option>google</option>
+            <option>browser-use</option><option>groq</option><option>ollama</option>
+          </select>
+        </div>
+        <div>
+          <label>Max steps</label>
+          <input id="maxsteps" type="text" placeholder="50" />
+        </div>
+      </div>
+      <div style="margin-top:14px"><button class="primary" style="width:100%" id="run-wheel">Turn the Wheel ⟳</button></div>
+      <div id="wheel-outcome"></div>
+    </div>
+  </section>
+
+  <!-- Column 2: Workflow canvas -->
+  <section class="col">
+    <h2>Workflow</h2>
+    <div class="canvas-toolbar">
+      <input id="wf-name" type="text" placeholder="Workflow name" />
+      <select id="add-node-type">
+        <option value="">+ node…</option>
+        <option value="navigate">navigate</option>
+        <option value="extract">extract</option>
+        <option value="agent">agent</option>
+        <option value="http">http</option>
+        <option value="set">set</option>
+        <option value="log">log</option>
+      </select>
+      <button id="wf-new" class="ghost">New</button>
+      <button id="wf-save">Save</button>
+      <button id="wf-run" class="primary">Run ▷</button>
+    </div>
+    <div id="canvas-wrap">
+      <svg id="canvas"><g id="edges"></g><g id="nodes"></g></svg>
+    </div>
+    <div id="inspector" class="hidden">
+      <label>Node <span id="insp-type" class="muted"></span></label>
+      <input id="insp-name" type="text" placeholder="Node name" style="margin-bottom:8px" />
+      <label>Params (JSON)</label>
+      <textarea id="insp-params"></textarea>
+      <div class="row" style="margin-top:8px">
+        <button id="insp-apply">Apply</button>
+        <button id="insp-delete" class="ghost">Delete node</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Column 3: Adaptations -->
+  <section class="col">
+    <h2>Adaptations · the Wheel</h2>
+    <div class="body">
+      <div class="wheel-emblem">
+        <svg width="70" height="70" viewBox="0 0 64 64"><circle cx="32" cy="32" r="26" fill="none" stroke="#1e2836" stroke-width="2"/><circle cx="32" cy="32" r="20" fill="none" stroke="#38bdf8" stroke-width="1.5" opacity=".6"/>
+        <g stroke="#33455c" stroke-width="1.5"><path d="M32 6v52M6 32h52M13 13l38 38M51 13L13 51"/></g>
+        <circle cx="32" cy="32" r="4" fill="#38bdf8"/></svg>
+      </div>
+      <div id="wf-list"><div class="empty">No adaptations yet.<br>Turn the Wheel to forge one.</div></div>
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const NODE_W = 170, NODE_H = 56, GAP_X = 210, ROW_Y = 120;
+let state = { workflows: [], current: null, selectedNode: null };
+
+function apiKey() { return $('#apikey').value.trim(); }
+function headers() { const h = {'Content-Type':'application/json'}; if (apiKey()) h['X-API-Key'] = apiKey(); return h; }
+async function api(path, opts={}) {
+  const res = await fetch(path, { headers: headers(), ...opts });
+  const text = await res.text();
+  let data; try { data = text ? JSON.parse(text) : {}; } catch { data = { raw: text }; }
+  if (!res.ok) throw new Error(data.detail || data.error || res.status);
+  return data;
+}
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), 2200); }
+
+async function health() {
+  try { await api('/health'); $('#health').className = 'dot ok'; }
+  catch { $('#health').className = 'dot err'; }
+}
+
+// ── Turn the Wheel ──────────────────────────────────────────────────────────
+async function runWheel() {
+  const task = $('#task').value.trim();
+  if (!task) return toast('Enter a task');
+  const btn = $('#run-wheel'); btn.disabled = true; btn.textContent = 'Turning…';
+  const out = $('#wheel-outcome');
+  out.innerHTML = '<div class="outcome muted">Running…</div>';
+  try {
+    const body = { task };
+    if ($('#provider').value) body.provider = $('#provider').value;
+    if ($('#maxsteps').value) body.max_steps = parseInt($('#maxsteps').value);
+    const r = await api('/v1/wheel/run', { method: 'POST', body: JSON.stringify(body) });
+    const pathBadge = `<span class="badge ${r.path}">${r.path||'—'}</span>`;
+    const okBadge = r.success ? '<span class="badge crystallized">success</span>' : '<span class="badge improvise">no result</span>';
+    const cryst = r.crystallized ? `<div class="muted" style="margin-top:6px">✦ New adaptation crystallized → <b>${r.workflow_id}</b></div>` : '';
+    out.innerHTML = `<div class="outcome">${pathBadge} ${okBadge}
+      <div class="result">${escapeHtml(r.result || r.error || '(no output)')}</div>${cryst}
+      <div class="muted" style="margin-top:8px">signature: <span style="font-family:var(--mono)">${escapeHtml(r.signature||'')}</span></div></div>`;
+    loadWorkflows();
+  } catch (e) {
+    out.innerHTML = `<div class="outcome err">${escapeHtml(e.message)}</div>`;
+  } finally { btn.disabled = false; btn.textContent = 'Turn the Wheel ⟳'; }
+}
+
+// ── Workflows list ──────────────────────────────────────────────────────────
+async function loadWorkflows() {
+  const data = await api('/v1/workflows');
+  state.workflows = data.workflows || [];
+  const list = $('#wf-list');
+  if (!state.workflows.length) { list.innerHTML = '<div class="empty">No adaptations yet.<br>Turn the Wheel to forge one.</div>'; return; }
+  list.innerHTML = state.workflows.map(w => `
+    <div class="wf ${state.current && state.current.id===w.id ? 'active':''}" data-id="${w.id}">
+      <div class="wf-name"><span>${escapeHtml(w.name)}</span><span class="badge ${w.origin}">${w.origin}</span></div>
+      <div class="wf-sig">${escapeHtml(w.signature||'—')}</div>
+      <div class="wf-meta"><span>${w.nodes.length} node${w.nodes.length===1?'':'s'}</span><span>· ${w.runs} run${w.runs===1?'':'s'}</span>
+        <span class="actions">
+          <button data-act="replay" data-id="${w.id}">Replay</button>
+          <button data-act="del" data-id="${w.id}" class="ghost">✕</button>
+        </span></div>
+    </div>`).join('');
+}
+
+$('#wf-list').addEventListener('click', async (e) => {
+  const actBtn = e.target.closest('button[data-act]');
+  if (actBtn) {
+    e.stopPropagation();
+    const id = actBtn.dataset.id;
+    if (actBtn.dataset.act === 'del') {
+      await api('/v1/workflows/'+id, { method:'DELETE' });
+      if (state.current && state.current.id === id) newWorkflow();
+      toast('Deleted'); loadWorkflows();
+    } else if (actBtn.dataset.act === 'replay') {
+      toast('Replaying…');
+      try { const r = await api('/v1/workflows/'+id+'/run', { method:'POST' });
+        toast(r.ok ? 'Replay ok' : 'Replay failed'); loadWorkflows(); }
+      catch (err) { toast(err.message); }
+    }
+    return;
+  }
+  const card = e.target.closest('.wf');
+  if (card) selectWorkflow(card.dataset.id);
+});
+
+async function selectWorkflow(id) {
+  const wf = await api('/v1/workflows/'+id);
+  state.current = wf; state.selectedNode = null;
+  $('#wf-name').value = wf.name;
+  renderCanvas(); loadWorkflows(); hideInspector();
+}
+
+function newWorkflow() {
+  state.current = { id: null, name: '', nodes: [], connections: [], signature: '', description: '', origin: 'manual', runs: 0 };
+  state.selectedNode = null; $('#wf-name').value = ''; renderCanvas(); hideInspector(); loadWorkflows();
+}
+
+// ── Canvas rendering ────────────────────────────────────────────────────────
+function renderCanvas() {
+  const nodesG = $('#nodes'), edgesG = $('#edges');
+  nodesG.innerHTML = ''; edgesG.innerHTML = '';
+  const wf = state.current;
+  if (!wf || !wf.nodes.length) { return; }
+  // auto-layout any node without a real position
+  wf.nodes.forEach((n, i) => {
+    if (!n.position || (n.position[0]===0 && n.position[1]===0 && i>0)) n.position = [40 + i*GAP_X, 60 + (i%2)*ROW_Y];
+    if (!n.position) n.position = [40 + i*GAP_X, 60];
+  });
+  const byId = Object.fromEntries(wf.nodes.map(n => [n.id, n]));
+  wf.connections.forEach(c => {
+    const s = byId[c.source], t = byId[c.target]; if (!s||!t) return;
+    const x1 = s.position[0]+NODE_W, y1 = s.position[1]+NODE_H/2, x2 = t.position[0], y2 = t.position[1]+NODE_H/2;
+    const mx = (x1+x2)/2;
+    const p = document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('class','edge'); p.setAttribute('d',`M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`);
+    edgesG.appendChild(p);
+  });
+  wf.nodes.forEach(n => {
+    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
+    g.setAttribute('class', 'node '+n.type + (state.selectedNode===n.id?' selected':''));
+    g.setAttribute('transform', `translate(${n.position[0]},${n.position[1]})`);
+    g.innerHTML = `<rect width="${NODE_W}" height="${NODE_H}" rx="10"/>
+      <text class="ntype" x="12" y="20">${n.type}</text>
+      <text class="nname" x="12" y="40">${escapeHtml((n.name||n.type)).slice(0,22)}</text>`;
+    g.addEventListener('mousedown', ev => startDrag(ev, n));
+    g.addEventListener('click', () => selectNode(n.id));
+    nodesG.appendChild(g);
+  });
+  // size the svg to content
+  const maxX = Math.max(...wf.nodes.map(n=>n.position[0]+NODE_W)) + 60;
+  const maxY = Math.max(...wf.nodes.map(n=>n.position[1]+NODE_H)) + 60;
+  $('#canvas').setAttribute('viewBox', `0 0 ${Math.max(maxX,600)} ${Math.max(maxY,400)}`);
+}
+
+let drag = null;
+function startDrag(ev, node) {
+  ev.preventDefault();
+  const svg = $('#canvas'); const pt = svg.createSVGPoint();
+  drag = { node, moved:false, svg, pt, offx:0, offy:0 };
+  const loc = clientToSvg(ev); drag.offx = loc.x - node.position[0]; drag.offy = loc.y - node.position[1];
+  window.addEventListener('mousemove', onDrag); window.addEventListener('mouseup', endDrag);
+}
+function clientToSvg(ev) { const p = drag ? drag.pt : $('#canvas').createSVGPoint(); p.x = ev.clientX; p.y = ev.clientY; return p.matrixTransform($('#canvas').getScreenCTM().inverse()); }
+function onDrag(ev) { if (!drag) return; drag.moved = true; const loc = clientToSvg(ev); drag.node.position = [Math.round(loc.x-drag.offx), Math.round(loc.y-drag.offy)]; renderCanvas(); }
+function endDrag() { window.removeEventListener('mousemove', onDrag); window.removeEventListener('mouseup', endDrag); drag = null; }
+
+// ── Node inspector ──────────────────────────────────────────────────────────
+function selectNode(id) {
+  if (drag && drag.moved) return;
+  state.selectedNode = id; renderCanvas();
+  const n = state.current.nodes.find(x=>x.id===id); if (!n) return;
+  $('#inspector').classList.remove('hidden');
+  $('#insp-type').textContent = '· '+n.type;
+  $('#insp-name').value = n.name||'';
+  $('#insp-params').value = JSON.stringify(n.params||{}, null, 2);
+}
+function hideInspector() { $('#inspector').classList.add('hidden'); }
+$('#insp-apply').addEventListener('click', () => {
+  const n = state.current.nodes.find(x=>x.id===state.selectedNode); if (!n) return;
+  n.name = $('#insp-name').value;
+  try { n.params = JSON.parse($('#insp-params').value||'{}'); } catch { return toast('Invalid JSON'); }
+  renderCanvas(); toast('Node updated (Save to persist)');
+});
+$('#insp-delete').addEventListener('click', () => {
+  const wf = state.current; wf.nodes = wf.nodes.filter(x=>x.id!==state.selectedNode);
+  wf.connections = wf.connections.filter(c=>c.source!==state.selectedNode && c.target!==state.selectedNode);
+  state.selectedNode = null; hideInspector(); renderCanvas();
+});
+
+// ── Toolbar actions ─────────────────────────────────────────────────────────
+$('#add-node-type').addEventListener('change', (e) => {
+  const type = e.target.value; if (!type) return; e.target.value = '';
+  if (!state.current) newWorkflow();
+  const wf = state.current;
+  const id = type + '_' + (wf.nodes.length+1);
+  const defaults = { navigate:{url:'https://example.com'}, http:{method:'GET',url:'https://example.com'},
+    extract:{instruction:'the main heading'}, agent:{task:'describe the page'}, set:{value:''}, log:{message:'hello'} };
+  const prev = wf.nodes[wf.nodes.length-1];
+  const node = { id, type, name:type, params: defaults[type]||{}, position:[40 + wf.nodes.length*GAP_X, 60] };
+  wf.nodes.push(node);
+  if (prev) wf.connections.push({ source: prev.id, target: id });
+  renderCanvas(); selectNode(id);
+});
+$('#wf-new').addEventListener('click', newWorkflow);
+$('#wf-save').addEventListener('click', async () => {
+  const wf = state.current; if (!wf) return;
+  wf.name = $('#wf-name').value.trim() || 'Untitled';
+  try {
+    const saved = await api('/v1/workflows', { method:'POST', body: JSON.stringify({
+      id: wf.id, name: wf.name, nodes: wf.nodes, connections: wf.connections,
+      signature: wf.signature||'', description: wf.description||'' }) });
+    state.current = saved; toast('Saved'); loadWorkflows();
+  } catch (e) { toast(e.message); }
+});
+$('#wf-run').addEventListener('click', async () => {
+  const wf = state.current; if (!wf || !wf.id) return toast('Save the workflow first');
+  toast('Running workflow…');
+  try { const r = await api('/v1/workflows/'+wf.id+'/run', { method:'POST' });
+    const failed = r.nodes.filter(n=>!n.ok);
+    toast(r.ok ? `Ran ${r.nodes.length} nodes ✓` : `Failed at ${failed[0]?.type||'?'} node`);
+    loadWorkflows();
+  } catch (e) { toast(e.message); }
+});
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+$('#run-wheel').addEventListener('click', runWheel);
+$('#apikey').value = localStorage.getItem('mah_key')||'';
+$('#apikey').addEventListener('change', e => localStorage.setItem('mah_key', e.target.value));
+
+health(); loadWorkflows(); newWorkflow();
+</script>
+</body>
+</html>

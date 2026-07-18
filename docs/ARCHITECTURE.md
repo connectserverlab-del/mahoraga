@@ -25,15 +25,31 @@ to a real browser.
 
 ## Layers implemented today
 
-### Workflow Engine — n8n
-[n8n](https://github.com/n8n-io/n8n) is run as a service (not vendored). Mahoraga
-ships a community node, [`n8n-nodes-mahoraga`](../integrations/n8n-nodes-mahoraga),
-that adds a **Mahoraga → Run Browser Task** step. Any workflow can now include an
-AI browser task alongside its other nodes; the Planner / Task Queue / Scheduler
-roles in the diagram are n8n's own triggers, queue mode, and cron.
+### Workflow Engine — the Wheel of Dharma (native) + n8n (optional)
+Mahoraga incorporates n8n-style workflow automation **natively** as the **Wheel
+of Dharma** ([`mahoraga/wheel/`](../mahoraga/wheel)): workflows are graphs of
+typed nodes (`navigate`, `extract`, `agent`, `http`, `set`, `log`), stored as
+the durable form of what the agent has learned.
 
-The node calls the Mahoraga service over HTTP using the **Mahoraga API**
-credential (base URL + optional `X-API-Key`).
+The Wheel is a loop, not just a runner:
+
+```
+recognize (signature) → known? ── replay a crystallized workflow (deterministic)
+                              └─ new? ── improvise (live agent) → crystallize → store
+```
+
+- **Recognize** — `signature.py` fingerprints a task (domain + normalized intent).
+- **Replay** — `executor.py` runs the matching workflow's nodes; no LLM for
+  deterministic nodes.
+- **Improvise** — falls back to the live Browser Use agent.
+- **Crystallize** — `crystallize.py` distills a *successful* solve into a stored
+  workflow, so the next occurrence is a replay. The wheel turns.
+
+Interop with **[n8n](https://github.com/n8n-io/n8n)** stays available for teams
+already invested in it: the [`n8n-nodes-mahoraga`](../integrations/n8n-nodes-mahoraga)
+community node adds a **Mahoraga → Run Browser Task** step calling the service
+over HTTP. Native Wheel for adaptation; n8n node for embedding in existing n8n
+estates.
 
 ### Service — Mahoraga
 A small FastAPI app ([`mahoraga/server.py`](../mahoraga/server.py)):

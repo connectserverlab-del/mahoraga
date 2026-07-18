@@ -42,16 +42,39 @@ mahoraga --headed "Fill out the contact form on example.com"
 The agent's final answer is printed to stdout, so it composes with shell
 pipelines; progress logs go to stderr.
 
-### HTTP service (for n8n and other orchestrators)
+### The Wheel of Dharma — adaptive automation + console
+
+Mahoraga incorporates n8n-style workflow automation natively as the **Wheel of
+Dharma**: its memory of adaptations. The Wheel closes a loop —
+
+```
+recognize → (known?) replay a workflow  ·  (new?) improvise with the agent → crystallize
+```
+
+The first time Mahoraga solves a task it improvises (live agent). On success it
+**crystallizes** the solve into a stored workflow. Next time it recognizes the
+task and **replays** that workflow — deterministic, no LLM. It doesn't get hit
+by the same thing twice.
+
+Start the service and open the console at `http://localhost:8080/`:
 
 ```bash
 mahoraga serve --host 0.0.0.0 --port 8080
 ```
 
+The console is one cohesive surface: **Turn the Wheel** (run a task), the
+**Workflow** canvas (an n8n-flavored node editor), and **Adaptations** (the
+crystallized workflows). Workflow nodes: `navigate`, `extract`, `agent`,
+`http`, `set`, `log`.
+
+Service endpoints:
+
 - `GET /health`
-- `POST /v1/tasks` — body `{ "task": "...", "provider": "...", "max_steps": 30, "cdp_url": "..." }`,
-  returns `{ success, result, provider, model, kernel }`. Set `MAHORAGA_API_KEY`
-  to require an `X-API-Key` header.
+- `POST /v1/tasks` — one-shot browser task → `{ success, result, provider, model, kernel }`
+- `POST /v1/wheel/run` — run through the Wheel → `{ path: replay|improvise, success, result, workflow_id, crystallized }`
+- `GET/POST /v1/workflows`, `GET/DELETE /v1/workflows/{id}`, `POST /v1/workflows/{id}/run`
+
+Set `MAHORAGA_API_KEY` to require an `X-API-Key` header on mutating endpoints.
 
 ### n8n workflow engine
 
@@ -104,6 +127,7 @@ matching CLI flag:
 | `MAHORAGA_CHROMIUM_PATH` | `--chromium-path` | auto-detected | Chromium/Chrome binary to use |
 | `BROWSEROS_CDP_URL` / `MAHORAGA_CDP_URL` | `--cdp-url` | none (launch local) | Attach to a BrowserOS kernel over CDP |
 | `MAHORAGA_API_KEY` | — | none | Require `X-API-Key` on the HTTP service |
+| `MAHORAGA_WHEEL_DIR` | — | `~/.mahoraga/wheel` | Where crystallized workflows are stored |
 
 If a system Chromium is found (e.g. a Playwright install or `/usr/bin/chromium`),
 Mahoraga uses it instead of letting Browser Use download its own copy — handy in
