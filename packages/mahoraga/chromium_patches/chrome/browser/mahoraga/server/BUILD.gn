@@ -1,0 +1,189 @@
+diff --git a/chrome/browser/mahoraga/server/BUILD.gn b/chrome/browser/mahoraga/server/BUILD.gn
+new file mode 100644
+index 0000000000000000000000000000000000000000..5fadaa41de9c2259e4d0cd35a08b758f694ba703
+--- /dev/null
++++ b/chrome/browser/mahoraga/server/BUILD.gn
+@@ -0,0 +1,183 @@
++# Copyright 2024 The Chromium Authors
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++
++import("//build/config/chrome_build.gni")
++import("//chrome/browser/mahoraga/buildflags.gni")
++
++_mahoraga_server_resources = "//chrome/browser/mahoraga/server/resources"
++_browserclaw_server_resources =
++    "//chrome/browser/mahoraga/claw_server/resources"
++
++_mahoraga_server_binary_name = "mahoraga_server"
++_browserclaw_server_binary_name = "mahoraga-claw-server"
++
++if (is_win) {
++  _mahoraga_server_binary_name += ".exe"
++  _browserclaw_server_binary_name += ".exe"
++}
++
++action("validate_mahoraga_server_resources") {
++  script = "validate_resources.py"
++  args = [ "bin/${_mahoraga_server_binary_name}" ]
++  inputs =
++      [ "${_mahoraga_server_resources}/bin/${_mahoraga_server_binary_name}" ]
++  outputs = [ "$target_gen_dir/mahoraga_server_resources_validated" ]
++}
++
++action("validate_browserclaw_server_resources") {
++  script = "validate_resources.py"
++  args = [ "bin/${_browserclaw_server_binary_name}" ]
++  inputs = [
++    "${_browserclaw_server_resources}/bin/${_browserclaw_server_binary_name}",
++  ]
++  outputs = [ "$target_gen_dir/browserclaw_server_resources_validated" ]
++}
++
++source_set("server") {
++  sources = [
++    "mahoraga_appcast_parser.cc",
++    "mahoraga_appcast_parser.h",
++    "mahoraga_server_config.cc",
++    "mahoraga_server_config.h",
++    "mahoraga_server_constants.h",
++    "mahoraga_server_manager.cc",
++    "mahoraga_server_manager.h",
++    "mahoraga_server_prefs.cc",
++    "mahoraga_server_prefs.h",
++    "mahoraga_server_proxy.cc",
++    "mahoraga_server_proxy.h",
++    "mahoraga_server_updater.cc",
++    "mahoraga_server_updater.h",
++    "mahoraga_server_utils.cc",
++    "mahoraga_server_utils.h",
++    "health_checker.h",
++    "health_checker_impl.cc",
++    "health_checker_impl.h",
++    "process_controller.h",
++    "process_controller_impl.cc",
++    "process_controller_impl.h",
++    "server_process_launcher.h",
++    "server_state_store.h",
++    "server_state_store_impl.cc",
++    "server_state_store_impl.h",
++    "server_updater.h",
++  ]
++
++  if (is_win) {
++    sources += [ "server_process_launcher_win.cc" ]
++  } else {
++    sources += [ "server_process_launcher.cc" ]
++  }
++
++  deps = [
++    "//base",
++    "//chrome/browser:browser_process",
++    "//chrome/browser/mahoraga/core:product",
++    "//chrome/browser/mahoraga/metrics",
++    "//chrome/common",
++    "//components/prefs",
++    "//content/public/browser",
++    "//crypto",
++    "//net",
++    "//services/network/public/cpp",
++    "//services/network/public/mojom",
++    "//third_party/boringssl",
++    "//third_party/libxml:xml_reader",
++    "//third_party/zlib/google:zip",
++  ]
++}
++
++source_set("test_support") {
++  testonly = true
++  sources = [
++    "test/mock_health_checker.h",
++    "test/mock_implementations.cc",
++    "test/mock_process_controller.h",
++    "test/mock_server_state_store.h",
++    "test/mock_server_updater.h",
++  ]
++
++  deps = [
++    ":server",
++    "//base",
++    "//testing/gmock",
++  ]
++}
++
++source_set("unit_tests") {
++  testonly = true
++  sources = [
++    "mahoraga_appcast_parser_unittest.cc",
++    "mahoraga_server_config_unittest.cc",
++    "mahoraga_server_manager_unittest.cc",
++    "mahoraga_server_proxy_unittest.cc",
++    "mahoraga_server_utils_unittest.cc",
++    "server_process_launcher_unittest.cc",
++  ]
++
++  deps = [
++    ":server",
++    ":test_support",
++    "//base",
++    "//base/test:test_support",
++    "//chrome/browser/mahoraga:buildflags",
++    "//chrome/browser/mahoraga/core",
++    "//components/prefs:test_support",
++    "//net",
++    "//net:test_support",
++    "//testing/gmock",
++    "//testing/gtest",
++  ]
++}
++
++if (is_mac) {
++  import("//build/config/apple/symbols.gni")
++  import("//build/config/mac/mac_sdk.gni")
++
++  bundle_data("mahoraga_server_resources_bundle") {
++    sources = [ _mahoraga_server_resources ]
++    outputs = [
++      "{{bundle_resources_dir}}/MahoragaServer/default/{{source_file_part}}",
++    ]
++  }
++
++  bundle_data("browserclaw_server_resources_bundle") {
++    sources = [ _browserclaw_server_resources ]
++    outputs = [
++      "{{bundle_resources_dir}}/BrowserClawServer/default/{{source_file_part}}",
++    ]
++  }
++} else {
++  copy("mahoraga_server_resources_copy") {
++    sources = [ _mahoraga_server_resources ]
++    outputs = [ "$root_out_dir/MahoragaServer/default/{{source_file_part}}" ]
++  }
++
++  copy("browserclaw_server_resources_copy") {
++    sources = [ _browserclaw_server_resources ]
++    outputs = [ "$root_out_dir/BrowserClawServer/default/{{source_file_part}}" ]
++  }
++}
++
++group("mahoraga_server_resources") {
++  deps = []
++
++  if (is_mac) {
++    if (mahoraga_product_mahoraga || mahoraga_package_all_server_resources) {
++      deps += [ ":mahoraga_server_resources_bundle" ]
++    }
++    if (mahoraga_product_browserclaw ||
++        mahoraga_package_all_server_resources) {
++      deps += [ ":browserclaw_server_resources_bundle" ]
++    }
++  } else {
++    if (mahoraga_product_mahoraga || mahoraga_package_all_server_resources) {
++      deps += [ ":mahoraga_server_resources_copy" ]
++    }
++    if (mahoraga_product_browserclaw ||
++        mahoraga_package_all_server_resources) {
++      deps += [ ":browserclaw_server_resources_copy" ]
++    }
++  }
++}
