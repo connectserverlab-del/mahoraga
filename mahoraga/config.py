@@ -24,7 +24,7 @@ PROVIDER_KEY_VARS: dict[str, str] = {
 DEFAULT_MODELS: dict[str, str] = {
     "anthropic": "claude-sonnet-5",
     "openai": "gpt-5.5",
-    "google": "gemini-2.5-pro",
+    "google": "gemini-2.0-flash",
     "browser-use": "bu-2-0",
     "groq": "llama-3.3-70b-versatile",
     "ollama": "qwen3:14b",

@@ -65,6 +65,19 @@ def build_llm(settings: Settings):
     raise ValueError(f"Unsupported provider: {provider}")
 
 
+def _proxy_args() -> list[str]:
+    """Chromium ignores HTTP(S)_PROXY env vars; translate them to CLI flags."""
+    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    if not proxy:
+        return []
+    args = [f"--proxy-server={proxy}"]
+    no_proxy = os.environ.get("NO_PROXY") or os.environ.get("no_proxy")
+    if no_proxy:
+        bypass = ";".join(h.strip() for h in no_proxy.split(",") if h.strip())
+        args.append(f"--proxy-bypass-list={bypass}")
+    return args
+
+
 def build_browser(settings: Settings):
     """Create a BrowserSession, preferring a locally installed Chromium."""
     from browser_use import BrowserSession
@@ -74,6 +87,10 @@ def build_browser(settings: Settings):
         # Root-owned containers can't use the Chromium sandbox.
         "chromium_sandbox": os.geteuid() != 0,
     }
+    proxy_args = _proxy_args()
+    if proxy_args:
+        kwargs["args"] = proxy_args
+        logger.info("Routing browser traffic through %s", proxy_args[0])
     executable = settings.chromium_path or _find_chromium()
     if executable:
         kwargs["executable_path"] = executable
