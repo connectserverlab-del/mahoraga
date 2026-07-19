@@ -1,0 +1,41 @@
+diff --git a/chrome/browser/mahoraga/buildflags.gni b/chrome/browser/mahoraga/buildflags.gni
+new file mode 100644
+index 0000000000000..e9c2702ebc12a
+--- /dev/null
++++ b/chrome/browser/mahoraga/buildflags.gni
+@@ -0,0 +1,35 @@
++# Copyright 2024 The Chromium Authors
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++
++declare_args() {
++  # Product identity to ship this build as: "mahoraga" or "browserclaw".
++  # Baked into the binary at build time so runtime switches and field trials
++  # cannot change product identity for shipped artifacts.
++  mahoraga_product = "mahoraga"
++
++  # Dev/test only. Official builds should leave this false.
++  # // TODO: nikhil - before prod claw release, set this to false
++  mahoraga_allow_runtime_product_override = true
++}
++
++declare_args() {
++  # Usually follows runtime override, but can be forced on for packaging tests.
++  mahoraga_package_all_server_resources = true
++}
++
++assert(mahoraga_product == "mahoraga" || mahoraga_product == "browserclaw",
++       "mahoraga_product must be 'mahoraga' or 'browserclaw'")
++
++mahoraga_product_mahoraga = mahoraga_product == "mahoraga"
++mahoraga_product_browserclaw = mahoraga_product == "browserclaw"
++
++# macOS profile root: substituted into app-Info.plist's CrProductDirName by
++# //chrome:chrome_app. Linux/Windows read the buildflags directly in
++# chrome_paths_linux.cc / chromium_install_modes.h. Changing a value orphans
++# every existing install's profile.
++if (mahoraga_product_browserclaw) {
++  mahoraga_product_dir_name = "BrowserClaw"
++} else {
++  mahoraga_product_dir_name = "Mahoraga"
++}

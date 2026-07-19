@@ -1,0 +1,69 @@
+diff --git a/chrome/browser/mahoraga/onboarding/BUILD.gn b/chrome/browser/mahoraga/onboarding/BUILD.gn
+new file mode 100644
+index 0000000000000000000000000000000000000000..4b3ae75acf7793612ff587b86d45645b580a8a3a
+--- /dev/null
++++ b/chrome/browser/mahoraga/onboarding/BUILD.gn
+@@ -0,0 +1,63 @@
++# Copyright 2026 The Chromium Authors
++# Use of this source code is governed by a BSD-style license that can be
++# found in the LICENSE file.
++
++import("//tools/grit/grit_rule.gni")
++import("//ui/webui/resources/tools/generate_grd.gni")
++
++_mahoraga_onboarding_resource_files = [
++  "index.html",
++  "app.css",
++  "app.js",
++  "icon/16.png",
++  "icon/32.png",
++  "icon/48.png",
++  "icon/96.png",
++  "icon/128.png",
++]
++
++generate_grd("build_resources_grd") {
++  grd_prefix = "mahoraga_onboarding"
++  out_grd = "$target_gen_dir/resources.grd"
++  input_files = _mahoraga_onboarding_resource_files
++  input_files_base_dir = rebase_path("resources", "//")
++  ignore_missing_input_files = true
++}
++
++grit("resources") {
++  source = "$target_gen_dir/resources.grd"
++  deps = [ ":build_resources_grd" ]
++  outputs = [
++    "grit/mahoraga_onboarding_resources.h",
++    "grit/mahoraga_onboarding_resources_map.h",
++    "grit/mahoraga_onboarding_resources_map.cc",
++    "mahoraga_onboarding_resources.pak",
++  ]
++  output_dir = "$root_gen_dir/chrome"
++}
++
++source_set("onboarding") {
++  sources = [
++    "mahoraga_onboarding.cc",
++    "mahoraga_onboarding.h",
++    "mahoraga_onboarding_prefs.cc",
++    "mahoraga_onboarding_prefs.h",
++  ]
++
++  deps = [
++    ":resources",
++    "//base",
++    "//chrome/browser:browser_process",
++    "//chrome/browser/mahoraga/core:prefs",
++    "//chrome/browser/mahoraga/core:product",
++    "//chrome/browser/importer",
++    "//chrome/browser/importer:impl",
++    "//chrome/browser/profiles:profile",
++    "//chrome/common:constants",
++    "//components/prefs",
++    "//components/user_data_importer/common",
++    "//content/public/browser",
++    "//content/public/common",
++    "//ui/webui",
++  ]
++}

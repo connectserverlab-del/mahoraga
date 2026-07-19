@@ -1,0 +1,153 @@
+# Download resources configuration for Mahoraga build
+# This file defines resources to download from R2 before the build process
+#
+# Behavior:
+# - Files are downloaded from R2 bucket at the specified r2_key path
+# - Existing files are cleared and re-downloaded (ensures latest)
+# - Build fails immediately if any download fails
+# - For universal builds on macOS, both arm64 and x64 are downloaded automatically
+# - `download_type: artifact_zip` downloads an archive, validates
+#   `artifact-metadata.json`, and extracts the declared files into `destination`
+#
+# Conditional Operations:
+# - Use 'os' field to specify target operating systems
+#   - Supported values: windows, macos, linux (case-sensitive)
+# - Use 'arch' field to specify target architectures
+#   - Supported values: x64, arm64
+# - Use 'build_type' field to specify when an operation should run
+#   - Supported values: debug, release
+# - Use 'executable' field to mark files that need executable permissions
+#   - Set to true for binaries (permissions are not preserved during download)
+# - Use 'download_type' field to switch from plain file download to archive extraction
+#   - Supported values: file, artifact_zip
+# R2 Path Structure:
+#   artifacts/server/latest/mahoraga-server-resources-{target}.zip
+#   claw-server/prod-resources/latest/mahoraga-claw-server-resources-{target}.zip
+#   claw-server-rust/prod-resources/latest/mahoraga-claw-server-rust-resources-{target}.zip
+#   claw-onboard/prod-resources/latest/mahoraga-claw-onboard-resources.zip
+#
+# Example:
+#   - name: "My Artifact - macOS ARM64"
+#     r2_key: "artifacts/server/latest/mahoraga-server-resources-darwin-arm64.zip"
+#     destination: "resources/binaries/mahoraga_server/darwin-arm64"
+#     download_type: "artifact_zip"
+#     os: ["macos"]
+#     arch: ["arm64"]
+
+download_operations:
+  # Mahoraga Server resource bundles - Platform & Architecture specific
+  - name: "Mahoraga Server Resources - macOS ARM64"
+    r2_key: "artifacts/server/latest/mahoraga-server-resources-darwin-arm64.zip"
+    destination: "resources/binaries/mahoraga_server/darwin-arm64"
+    download_type: "artifact_zip"
+    os: ["macos"]
+    arch: ["arm64"]
+
+  - name: "Mahoraga Server Resources - macOS x64"
+    r2_key: "artifacts/server/latest/mahoraga-server-resources-darwin-x64.zip"
+    destination: "resources/binaries/mahoraga_server/darwin-x64"
+    download_type: "artifact_zip"
+    os: ["macos"]
+    arch: ["x64"]
+
+  - name: "Mahoraga Server Resources - Linux ARM64"
+    r2_key: "artifacts/server/latest/mahoraga-server-resources-linux-arm64.zip"
+    destination: "resources/binaries/mahoraga_server/linux-arm64"
+    download_type: "artifact_zip"
+    os: ["linux"]
+    arch: ["arm64"]
+
+  - name: "Mahoraga Server Resources - Linux x64"
+    r2_key: "artifacts/server/latest/mahoraga-server-resources-linux-x64.zip"
+    destination: "resources/binaries/mahoraga_server/linux-x64"
+    download_type: "artifact_zip"
+    os: ["linux"]
+    arch: ["x64"]
+
+  - name: "Mahoraga Server Resources - Windows x64"
+    r2_key: "artifacts/server/latest/mahoraga-server-resources-windows-x64.zip"
+    destination: "resources/binaries/mahoraga_server/windows-x64"
+    download_type: "artifact_zip"
+    os: ["windows"]
+    arch: ["x64"]
+
+  # Mahoraga Claw Server resource bundles - Platform & Architecture specific.
+  # Bun ships by default. Rust alternative: uncomment the Rust blocks below and
+  # flip copy_resources.yaml plus nightly-browserclaw.yml to ship claw-server-rust.
+  - name: "Mahoraga Claw Server Resources - macOS ARM64"
+    r2_key: "claw-server/prod-resources/latest/mahoraga-claw-server-resources-darwin-arm64.zip"
+    destination: "resources/binaries/mahoraga_claw_server/darwin-arm64"
+    download_type: "artifact_zip"
+    os: ["macos"]
+    arch: ["arm64"]
+
+  - name: "Mahoraga Claw Server Resources - macOS x64"
+    r2_key: "claw-server/prod-resources/latest/mahoraga-claw-server-resources-darwin-x64.zip"
+    destination: "resources/binaries/mahoraga_claw_server/darwin-x64"
+    download_type: "artifact_zip"
+    os: ["macos"]
+    arch: ["x64"]
+
+  - name: "Mahoraga Claw Server Resources - Linux ARM64"
+    r2_key: "claw-server/prod-resources/latest/mahoraga-claw-server-resources-linux-arm64.zip"
+    destination: "resources/binaries/mahoraga_claw_server/linux-arm64"
+    download_type: "artifact_zip"
+    os: ["linux"]
+    arch: ["arm64"]
+
+  - name: "Mahoraga Claw Server Resources - Linux x64"
+    r2_key: "claw-server/prod-resources/latest/mahoraga-claw-server-resources-linux-x64.zip"
+    destination: "resources/binaries/mahoraga_claw_server/linux-x64"
+    download_type: "artifact_zip"
+    os: ["linux"]
+    arch: ["x64"]
+
+  - name: "Mahoraga Claw Server Resources - Windows x64"
+    r2_key: "claw-server/prod-resources/latest/mahoraga-claw-server-resources-windows-x64.zip"
+    destination: "resources/binaries/mahoraga_claw_server/windows-x64"
+    download_type: "artifact_zip"
+    os: ["windows"]
+    arch: ["x64"]
+
+  # Rust alternative resource bundles - uncomment only when shipping claw-server-rust.
+  # - name: "Mahoraga Claw Rust Server Resources - macOS ARM64"
+  #   r2_key: "claw-server-rust/prod-resources/latest/mahoraga-claw-server-rust-resources-darwin-arm64.zip"
+  #   destination: "resources/binaries/mahoraga_claw_server_rust/darwin-arm64"
+  #   download_type: "artifact_zip"
+  #   os: ["macos"]
+  #   arch: ["arm64"]
+
+  # - name: "Mahoraga Claw Rust Server Resources - macOS x64"
+  #   r2_key: "claw-server-rust/prod-resources/latest/mahoraga-claw-server-rust-resources-darwin-x64.zip"
+  #   destination: "resources/binaries/mahoraga_claw_server_rust/darwin-x64"
+  #   download_type: "artifact_zip"
+  #   os: ["macos"]
+  #   arch: ["x64"]
+
+  # - name: "Mahoraga Claw Rust Server Resources - Linux ARM64"
+  #   r2_key: "claw-server-rust/prod-resources/latest/mahoraga-claw-server-rust-resources-linux-arm64.zip"
+  #   destination: "resources/binaries/mahoraga_claw_server_rust/linux-arm64"
+  #   download_type: "artifact_zip"
+  #   os: ["linux"]
+  #   arch: ["arm64"]
+
+  # - name: "Mahoraga Claw Rust Server Resources - Linux x64"
+  #   r2_key: "claw-server-rust/prod-resources/latest/mahoraga-claw-server-rust-resources-linux-x64.zip"
+  #   destination: "resources/binaries/mahoraga_claw_server_rust/linux-x64"
+  #   download_type: "artifact_zip"
+  #   os: ["linux"]
+  #   arch: ["x64"]
+
+  # - name: "Mahoraga Claw Rust Server Resources - Windows x64"
+  #   r2_key: "claw-server-rust/prod-resources/latest/mahoraga-claw-server-rust-resources-windows-x64.zip"
+  #   destination: "resources/binaries/mahoraga_claw_server_rust/windows-x64"
+  #   download_type: "artifact_zip"
+  #   os: ["windows"]
+  #   arch: ["x64"]
+
+  # Mahoraga Claw onboarding static resources - platform-independent, feeds
+  # the onboarding grit pak built for every product (no os/arch/product gate)
+  - name: "Mahoraga Claw Onboarding Resources"
+    r2_key: "claw-onboard/prod-resources/latest/mahoraga-claw-onboard-resources.zip"
+    destination: "resources/binaries/mahoraga_claw_onboard"
+    download_type: "artifact_zip"

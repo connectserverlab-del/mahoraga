@@ -1,0 +1,238 @@
+#!/usr/bin/env python3
+"""Tests for the shared server-binary sign table."""
+
+import unittest
+from pathlib import Path
+
+from .server_binaries import (
+    all_server_bundles,
+    expected_windows_bundle_binary_paths,
+    expected_windows_binary_paths,
+    macos_sign_spec_for,
+    server_ota_bundles_for_product,
+    server_bundles_for_product,
+)
+from .browserclaw.product import (
+    BROWSERCLAW_RUST_SERVER_BUNDLE,
+    BROWSERCLAW_SERVER_BUNDLE as MAHORAGA_CLAW_SERVER_BUNDLE,
+)
+from .mahoraga.product import MAHORAGA_SERVER_BUNDLE
+
+SERVER_BUNDLES = all_server_bundles()
+MACOS_SERVER_BINARIES = {
+    stem: spec
+    for bundle in SERVER_BUNDLES
+    for stem, spec in bundle.macos_binaries.items()
+}
+WINDOWS_SERVER_BINARIES = list(MAHORAGA_SERVER_BUNDLE.windows_binaries)
+
+ENTITLEMENTS_DIR = Path(__file__).resolve().parents[2] / "resources" / "entitlements"
+
+
+class MacosServerBinariesTest(unittest.TestCase):
+    def test_server_bundles_use_bun_for_browser_builds(self):
+        self.assertEqual(
+            all_server_bundles(),
+            (MAHORAGA_SERVER_BUNDLE, MAHORAGA_CLAW_SERVER_BUNDLE),
+        )
+
+    def test_server_bundles_have_separate_resource_roots(self):
+        self.assertEqual(
+            MAHORAGA_SERVER_BUNDLE.local_resources_root,
+            Path("resources/binaries/mahoraga_server"),
+        )
+        self.assertEqual(
+            MAHORAGA_CLAW_SERVER_BUNDLE.local_resources_root,
+            Path("resources/binaries/mahoraga_claw_server"),
+        )
+        self.assertEqual(
+            BROWSERCLAW_RUST_SERVER_BUNDLE.local_resources_root,
+            Path("resources/binaries/mahoraga_claw_server_rust"),
+        )
+        self.assertEqual(
+            MAHORAGA_SERVER_BUNDLE.chromium_resources_root,
+            Path("chrome/browser/mahoraga/server/resources"),
+        )
+        self.assertEqual(
+            MAHORAGA_CLAW_SERVER_BUNDLE.chromium_resources_root,
+            Path("chrome/browser/mahoraga/claw_server/resources"),
+        )
+        self.assertEqual(
+            BROWSERCLAW_RUST_SERVER_BUNDLE.chromium_resources_root,
+            Path("chrome/browser/mahoraga/claw_server/resources"),
+        )
+        self.assertEqual(
+            MAHORAGA_SERVER_BUNDLE.macos_bundle_resources_root,
+            Path("Contents/Resources/MahoragaServer/default/resources"),
+        )
+        self.assertEqual(
+            MAHORAGA_CLAW_SERVER_BUNDLE.macos_bundle_resources_root,
+            Path("Contents/Resources/BrowserClawServer/default/resources"),
+        )
+        self.assertEqual(
+            BROWSERCLAW_RUST_SERVER_BUNDLE.macos_bundle_resources_root,
+            Path("Contents/Resources/BrowserClawServer/default/resources"),
+        )
+        self.assertTrue(MAHORAGA_SERVER_BUNDLE.required_in_chromium_output)
+        self.assertFalse(MAHORAGA_CLAW_SERVER_BUNDLE.required_in_chromium_output)
+        self.assertFalse(BROWSERCLAW_RUST_SERVER_BUNDLE.required_in_chromium_output)
+        self.assertEqual(
+            MAHORAGA_SERVER_BUNDLE.unsigned_artifact_key("darwin-arm64"),
+            "artifacts/server/latest/mahoraga-server-resources-darwin-arm64.zip",
+        )
+        self.assertEqual(
+            MAHORAGA_CLAW_SERVER_BUNDLE.unsigned_artifact_key("darwin-arm64"),
+            "claw-server/prod-resources/latest/mahoraga-claw-server-resources-darwin-arm64.zip",
+        )
+        self.assertEqual(
+            BROWSERCLAW_RUST_SERVER_BUNDLE.unsigned_artifact_key("darwin-arm64"),
+            "claw-server-rust/prod-resources/latest/mahoraga-claw-server-rust-resources-darwin-arm64.zip",
+        )
+
+    def test_server_bundles_filter_by_product(self):
+        self.assertEqual(
+            server_bundles_for_product("mahoraga"),
+            (MAHORAGA_SERVER_BUNDLE,),
+        )
+        self.assertEqual(
+            server_bundles_for_product("browserclaw"),
+            (MAHORAGA_CLAW_SERVER_BUNDLE,),
+        )
+
+    def test_server_ota_bundles_stay_pinned_to_typescript_claw(self):
+        self.assertEqual(
+            server_ota_bundles_for_product("browserclaw"),
+            (MAHORAGA_CLAW_SERVER_BUNDLE,),
+        )
+
+    def test_every_entry_has_identifier_and_options(self):
+        for stem, spec in MACOS_SERVER_BINARIES.items():
+            self.assertTrue(spec.identifier_suffix, f"{stem} missing identifier_suffix")
+            self.assertTrue(spec.options, f"{stem} missing options")
+
+    def test_every_entitlements_plist_exists_on_disk(self):
+        for stem, spec in MACOS_SERVER_BINARIES.items():
+            if spec.entitlements is None:
+                continue
+            plist = ENTITLEMENTS_DIR / spec.entitlements
+            self.assertTrue(plist.exists(), f"{stem}: entitlements {plist} missing")
+
+    def test_macos_sign_spec_for_resolves_by_stem(self):
+        spec = macos_sign_spec_for(Path("/x/mahoraga_server"))
+        assert spec is not None
+        self.assertEqual(spec.identifier_suffix, "mahoraga_server")
+        self.assertIsNone(macos_sign_spec_for(Path("/x/not_a_known_binary")))
+
+    def test_macos_sign_spec_for_resolves_claw_server_binary(self):
+        spec = macos_sign_spec_for(Path("/x/mahoraga-claw-server"))
+        assert spec is not None
+        self.assertEqual(spec.identifier_suffix, "mahoraga_claw_server")
+        self.assertEqual(spec.options, "runtime")
+        self.assertEqual(
+            spec.entitlements, "mahoraga-executable-entitlements.plist"
+        )
+
+    def test_third_party_tool_entries_use_plain_hardened_runtime(self):
+        for binary in ["rg"]:
+            spec = macos_sign_spec_for(Path(f"/x/{binary}"))
+            assert spec is not None
+            self.assertEqual(spec.identifier_suffix, binary)
+            self.assertEqual(spec.options, "runtime")
+            self.assertIsNone(spec.entitlements)
+        self.assertIsNone(macos_sign_spec_for(Path("/x/codex")))
+        self.assertIsNone(macos_sign_spec_for(Path("/x/claude")))
+
+    def test_lima_is_not_registered_for_signing(self):
+        keys = set(MACOS_SERVER_BINARIES.keys())
+        forbidden = {
+            "limactl",
+            "podman",
+            "gvproxy",
+            "vfkit",
+            "krunkit",
+            "podman-mac-helper",
+        }
+        leftover = forbidden & keys
+        self.assertFalse(leftover, f"stale VM entries still present: {leftover}")
+        self.assertIsNone(macos_sign_spec_for(Path("/x/third_party/lima/bin/limactl")))
+
+
+class WindowsServerBinariesTest(unittest.TestCase):
+    def test_no_duplicates(self):
+        self.assertEqual(
+            len(WINDOWS_SERVER_BINARIES), len(set(WINDOWS_SERVER_BINARIES))
+        )
+
+    def test_paths_within_expected_layout(self):
+        for rel in WINDOWS_SERVER_BINARIES:
+            self.assertTrue(
+                rel == "mahoraga_server.exe" or rel.startswith("third_party/"),
+                f"{rel} outside expected layout",
+            )
+
+    def test_expected_windows_binary_paths_resolves_mahoraga_descriptor(self):
+        root = Path("/tmp/fake/resources/bin")
+        self.assertEqual(
+            expected_windows_binary_paths(root, MAHORAGA_SERVER_BUNDLE),
+            [root / "mahoraga_server.exe"],
+        )
+
+    def test_expected_windows_binary_paths_resolves_browserclaw_descriptor(self):
+        root = Path("/tmp/fake/resources/bin")
+        self.assertEqual(
+            expected_windows_binary_paths(root, MAHORAGA_CLAW_SERVER_BUNDLE),
+            [root / "mahoraga-claw-server.exe"],
+        )
+
+    def test_expected_windows_bundle_binary_paths_includes_claw(self):
+        build_output_dir = Path("/tmp/out/Default")
+
+        self.assertEqual(
+            expected_windows_bundle_binary_paths(build_output_dir),
+            [
+                build_output_dir
+                / "MahoragaServer"
+                / "default"
+                / "resources"
+                / "bin"
+                / "mahoraga_server.exe",
+                build_output_dir
+                / "BrowserClawServer"
+                / "default"
+                / "resources"
+                / "bin"
+                / "mahoraga-claw-server.exe",
+            ],
+        )
+
+    def test_expected_windows_bundle_binary_paths_can_filter_by_product(self):
+        build_output_dir = Path("/tmp/out/Default")
+
+        self.assertEqual(
+            expected_windows_bundle_binary_paths(build_output_dir, "browserclaw"),
+            [
+                build_output_dir
+                / "BrowserClawServer"
+                / "default"
+                / "resources"
+                / "bin"
+                / "mahoraga-claw-server.exe",
+            ],
+        )
+
+    def test_windows_has_no_stale_third_party(self):
+        forbidden = {
+            "third_party/podman/podman.exe",
+            "third_party/podman/gvproxy.exe",
+            "third_party/podman/win-sshproxy.exe",
+            "third_party/bun.exe",
+            "third_party/rg.exe",
+            "third_party/codex.exe",
+            "third_party/claude.exe",
+        }
+        leftover = forbidden & set(WINDOWS_SERVER_BINARIES)
+        self.assertFalse(leftover, f"stale entries still present: {leftover}")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "Mahoraga MCP Server",
+  "description": "Model Context Protocol server exposing Chromium browser automation capabilities through Mahoraga",
+  "repository": {
+    "url": "https://github.com/mahoraga/mahoraga-server",
+    "source": "github"
+  },
+  "version": "0.0.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "mahoraga-mcp-server",
+      "version": "0.0.1",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": []
+    }
+  ]
+}
