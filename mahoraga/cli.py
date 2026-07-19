@@ -16,7 +16,7 @@ from dotenv import load_dotenv
 
 from mahoraga.config import DEFAULT_MODELS, Settings
 
-_SUBCOMMANDS = {"run", "serve"}
+_SUBCOMMANDS = {"run", "serve", "vault"}
 
 
 def _add_run_arguments(parser: argparse.ArgumentParser) -> None:
@@ -58,6 +58,13 @@ def build_parser() -> argparse.ArgumentParser:
     serve_parser = sub.add_parser("serve", help="Start the HTTP service (for n8n, etc.)")
     serve_parser.add_argument("--host", default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
     serve_parser.add_argument("--port", type=int, default=8080, help="Bind port (default: 8080)")
+
+    vault_parser = sub.add_parser("vault", help="Manage saved site credentials")
+    vault_parser.add_argument("action", choices=["add", "list", "rm"], help="Vault action")
+    vault_parser.add_argument("domain", nargs="?", help="Site domain (for add/rm)")
+    vault_parser.add_argument("--username", help="Username / email (for add)")
+    vault_parser.add_argument("--password", help="Password (for add; omit to be prompted)")
+    vault_parser.add_argument("--notes", default="", help="Optional note (for add)")
 
     return parser
 
@@ -113,9 +120,46 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "run":
         return _run(args)
+    if args.command == "vault":
+        return _vault(args)
 
     build_parser().print_help()
     return 1
+
+
+def _vault(args: argparse.Namespace) -> int:
+    from datetime import datetime, timezone
+
+    from mahoraga.vault import Vault
+
+    vault = Vault()
+    if args.action == "list":
+        entries = vault.list()
+        if not entries:
+            print("Vault is empty.", file=sys.stderr)
+            return 0
+        for e in entries:
+            print(f"{e['domain']:<32} {e['username']}")
+        return 0
+    if args.action == "rm":
+        if not args.domain:
+            print("mahoraga vault rm <domain>", file=sys.stderr)
+            return 2
+        print("Removed" if vault.delete(args.domain) else "Not found", file=sys.stderr)
+        return 0
+    # add
+    if not args.domain or not args.username:
+        print("mahoraga vault add <domain> --username U [--password P]", file=sys.stderr)
+        return 2
+    password = args.password
+    if not password:
+        import getpass
+
+        password = getpass.getpass(f"Password for {args.username}@{args.domain}: ")
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    entry = vault.add(args.domain, args.username, password, args.notes, now=now)
+    print(f"Saved credentials for {entry.domain} (user {entry.username}).", file=sys.stderr)
+    return 0
 
 
 if __name__ == "__main__":

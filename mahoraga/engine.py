@@ -78,13 +78,16 @@ def _proxy_args() -> list[str]:
     return args
 
 
-def build_browser(settings: Settings):
+def build_browser(settings: Settings, allowed_domains: list[str] | None = None):
     """Create a BrowserSession.
 
     When a BrowserOS kernel is configured (``settings.cdp_url``), attach to that
     already-running browser over CDP and let it own the browser lifecycle. This
     is the kernel boundary: Mahoraga drives pages but never launches or kills
     the browser. Otherwise, launch a local Chromium ourselves.
+
+    ``allowed_domains`` locks the session to a set of domain patterns — used
+    when vault credentials are injected, so secrets can't leak to other sites.
     """
     from browser_use import BrowserSession
 
@@ -92,13 +95,18 @@ def build_browser(settings: Settings):
         logger.info("Attaching to BrowserOS kernel at %s", settings.cdp_url)
         # is_local=False keeps Browser Use from trying to manage (kill) a
         # browser process it did not start.
-        return BrowserSession(cdp_url=settings.cdp_url, is_local=False)
+        kwargs: dict = {"cdp_url": settings.cdp_url, "is_local": False}
+        if allowed_domains:
+            kwargs["allowed_domains"] = allowed_domains
+        return BrowserSession(**kwargs)
 
-    kwargs: dict = {
+    kwargs = {
         "headless": settings.headless,
         # Root-owned containers can't use the Chromium sandbox.
         "chromium_sandbox": os.geteuid() != 0,
     }
+    if allowed_domains:
+        kwargs["allowed_domains"] = allowed_domains
     proxy_args = _proxy_args()
     if proxy_args:
         kwargs["args"] = proxy_args
@@ -110,18 +118,81 @@ def build_browser(settings: Settings):
     return BrowserSession(**kwargs)
 
 
+def build_credentials(task: str) -> tuple[dict | None, list[str] | None, str | None]:
+    """Assemble Browser Use ``sensitive_data`` + ``allowed_domains`` for a task.
+
+    Looks up the vault for any site referenced by the task and returns
+    domain-scoped credentials (the LLM only ever sees the ``vault_username`` /
+    ``vault_password`` placeholders), the domain allow-list to lock the session
+    to those sites, and a short instruction telling the agent to log in itself.
+    Returns ``(None, None, None)`` when the vault has nothing for this task.
+    """
+    try:
+        from mahoraga.vault import Vault
+
+        entries = Vault().entries_for_task(task)
+    except Exception as exc:  # noqa: BLE001 — vault must never break a run
+        logger.debug("Vault lookup skipped: %s", exc)
+        return None, None, None
+    if not entries:
+        return None, None, None
+
+    sensitive: dict[str, dict[str, str]] = {}
+    allowed: list[str] = []
+    for entry in entries:
+        for pattern in (f"https://{entry.domain}", f"https://*.{entry.domain}"):
+            sensitive[pattern] = {
+                "vault_username": entry.username,
+                "vault_password": entry.password,
+            }
+            allowed.append(pattern)
+    domains = ", ".join(e.domain for e in entries)
+    hint = (
+        f"You already have saved login credentials for: {domains}. "
+        "If a login or sign-in form appears, fill the username field with "
+        "vault_username and the password field with vault_password and submit — "
+        "do NOT stop to ask the user to log in."
+    )
+    logger.info("Vault: injecting credentials for %s", domains)
+    return sensitive, allowed, hint
+
+
 async def run_task_async(task: str, settings: Settings | None = None) -> str | None:
-    """Run a natural-language browser task and return the agent's final answer."""
+    """Run a natural-language browser task and return the agent's final answer.
+
+    If the vault holds credentials for a site the task references, they are
+    injected so the agent logs in on its own instead of waiting for the user.
+    """
     settings = (settings or Settings()).resolve()
     from browser_use import Agent
+
+    sensitive, allowed, hint = build_credentials(task)
+    if hint:
+        task = f"{task}\n\n{hint}"
 
     agent = Agent(
         task=task,
         llm=build_llm(settings),
-        browser=build_browser(settings),
+        browser=build_browser(settings, allowed_domains=allowed),
         use_vision=settings.use_vision,
+        sensitive_data=sensitive,
     )
     history = await agent.run(max_steps=settings.max_steps)
+
+    # Mark which sites' credentials were used, for the vault's last-used stamp.
+    if allowed:
+        try:
+            from datetime import datetime, timezone
+
+            from mahoraga.vault import Vault
+
+            vault = Vault()
+            now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            for entry in vault.entries_for_task(task):
+                vault.touch(entry.domain, now)
+        except Exception:  # noqa: BLE001
+            pass
+
     return history.final_result()
 
 

@@ -5,3 +5,7 @@ __pycache__/
 dist/
 build/
 *.egg-info/
+# Never commit vault material
+*.enc
+vault.key
+.mahoraga/

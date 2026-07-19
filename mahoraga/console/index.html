@@ -43,6 +43,23 @@
   .side-label { font-size: 11px; text-transform: uppercase; letter-spacing: .09em; color: var(--muted);
     padding: 20px 20px 8px; font-weight: 600; }
   #wf-list { flex: 1; overflow: auto; padding: 0 12px 12px; }
+  .vault-head { display: flex; align-items: center; justify-content: space-between; }
+  .mini-add { background: var(--surface-2); border: 1px solid var(--line); color: var(--ink); width: 22px; height: 22px;
+    border-radius: 6px; cursor: pointer; font-size: 15px; line-height: 1; padding: 0; }
+  .mini-add:hover { border-color: var(--teal); color: var(--teal); }
+  .vault-form { padding: 0 16px 6px; display: flex; flex-direction: column; gap: 6px; }
+  .vault-form.hidden { display: none; }
+  .vault-form input { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 8px 9px;
+    font: inherit; font-size: 12px; color: var(--ink); }
+  .vault-list { padding: 0 12px; max-height: 160px; overflow: auto; }
+  .vcred { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line);
+    border-radius: 9px; margin-bottom: 6px; }
+  .vcred .vc-main { min-width: 0; flex: 1; }
+  .vcred .vc-domain { font-weight: 600; font-size: 12.5px; }
+  .vcred .vc-user { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vcred button { margin-left: auto; background: var(--surface); border: 1px solid var(--line); color: var(--muted);
+    border-radius: 6px; width: 24px; height: 24px; cursor: pointer; padding: 0; }
+  .vcred button:hover { border-color: var(--teal); color: var(--teal); }
   .side-foot { border-top: 1px solid var(--line); padding: 12px 16px; display: flex; align-items: center; gap: 10px; }
   .side-foot input { flex: 1; min-width: 0; background: var(--surface-2); border: 1px solid var(--line);
     border-radius: 8px; padding: 6px 9px; font: inherit; font-size: 12px; color: var(--ink); }
@@ -157,6 +174,14 @@
     </div>
     <div class="side-label">Adaptations</div>
     <div id="wf-list"><div class="empty">No adaptations yet.<br>Turn the Wheel to forge one.</div></div>
+    <div class="side-label vault-head">Vault <button id="vault-toggle" class="mini-add" title="Save a credential">+</button></div>
+    <form id="vault-form" class="vault-form hidden">
+      <input id="v-domain" type="text" placeholder="site.com" autocomplete="off" />
+      <input id="v-user" type="text" placeholder="username / email" autocomplete="off" />
+      <input id="v-pass" type="password" placeholder="password" autocomplete="new-password" />
+      <button type="submit" class="new-task" style="padding:8px;font-size:13px">Save credential</button>
+    </form>
+    <div id="vault-list" class="vault-list"></div>
     <div class="side-foot">
       <div class="dot" id="health" title="service health"></div>
       <input id="apikey" type="password" placeholder="API key (if set)" />
@@ -429,12 +454,43 @@ $('#wf-run').addEventListener('click', async () => {
   } catch (e) { toast(e.message); }
 });
 
+// ── Vault ────────────────────────────────────────────────────────────────────
+async function loadVault() {
+  try {
+    const data = await api('/v1/vault');
+    const creds = data.credentials || [];
+    const list = $('#vault-list');
+    list.innerHTML = creds.map(c => `
+      <div class="vcred">
+        <svg class="vc-key" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M10.85 12.15 19 4M18 5l2 2M15 8l2 2"/></svg>
+        <div class="vc-main"><div class="vc-domain">${escapeHtml(c.domain)}</div><div class="vc-user">${escapeHtml(c.username)}</div></div>
+        <button data-domain="${escapeHtml(c.domain)}" title="Remove">✕</button>
+      </div>`).join('') || '<div class="empty" style="padding:14px">No saved logins.</div>';
+  } catch (e) { /* vault optional */ }
+}
+$('#vault-toggle').addEventListener('click', () => $('#vault-form').classList.toggle('hidden'));
+$('#vault-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const domain = $('#v-domain').value.trim(), username = $('#v-user').value.trim(), password = $('#v-pass').value;
+  if (!domain || !username || !password) return toast('Domain, username, and password required');
+  try {
+    await api('/v1/vault', { method:'POST', body: JSON.stringify({ domain, username, password }) });
+    $('#v-domain').value = ''; $('#v-user').value = ''; $('#v-pass').value = '';
+    $('#vault-form').classList.add('hidden'); toast('Credential saved'); loadVault();
+  } catch (err) { toast(err.message); }
+});
+$('#vault-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button[data-domain]'); if (!btn) return;
+  await api('/v1/vault/'+encodeURIComponent(btn.dataset.domain), { method:'DELETE' });
+  toast('Removed'); loadVault();
+});
+
 $('#run-wheel').addEventListener('click', runWheel);
 $('#task').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey||e.ctrlKey)) runWheel(); });
 $('#apikey').value = localStorage.getItem('mah_key')||'';
 $('#apikey').addEventListener('change', e => localStorage.setItem('mah_key', e.target.value));
 
-health(); loadWorkflows(); newWorkflow();
+health(); loadWorkflows(); newWorkflow(); loadVault();
 </script>
 </body>
 </html>

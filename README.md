@@ -100,6 +100,34 @@ mahoraga --cdp-url http://localhost:9222 "Summarize my open tabs"
 # or: export BROWSEROS_CDP_URL=http://localhost:9222
 ```
 
+### Credential vault (autonomous login)
+
+Save a site login once and Mahoraga logs in on its own — it won't stop to wait
+for you.
+
+```bash
+mahoraga vault add github.com --username octocat   # prompts for the password
+mahoraga vault list
+mahoraga vault rm github.com
+```
+
+You can also manage credentials from the console's **Vault** panel, or the API
+(`GET/POST /v1/vault`, `DELETE /v1/vault/{domain}`).
+
+How it stays safe:
+
+- Credentials are **encrypted at rest** (Fernet) with a key from
+  `MAHORAGA_VAULT_KEY`, or an auto-generated `~/.mahoraga/vault.key` (chmod 600).
+- The **LLM never sees passwords**. At run time they are passed to Browser Use
+  as `sensitive_data` placeholders (`vault_username` / `vault_password`); only
+  the browser fills the real value into the page.
+- When credentials are injected, the browser is **locked to that site**
+  (`allowed_domains`), so a prompt-injected page elsewhere can't exfiltrate them.
+- Passwords are never returned by the API/console list, and never logged.
+
+For production, set `MAHORAGA_VAULT_KEY` from your OS keychain or a secrets
+manager rather than relying on the generated key file.
+
 ### Python API
 
 ```python
@@ -128,6 +156,8 @@ matching CLI flag:
 | `BROWSEROS_CDP_URL` / `MAHORAGA_CDP_URL` | `--cdp-url` | none (launch local) | Attach to a BrowserOS kernel over CDP |
 | `MAHORAGA_API_KEY` | — | none | Require `X-API-Key` on the HTTP service |
 | `MAHORAGA_WHEEL_DIR` | — | `~/.mahoraga/wheel` | Where crystallized workflows are stored |
+| `MAHORAGA_VAULT_KEY` | — | generated key file | Fernet key encrypting saved site logins |
+| `MAHORAGA_VAULT_FILE` | — | `~/.mahoraga/vault.enc` | Encrypted credential vault location |
 
 If a system Chromium is found (e.g. a Playwright install or `/usr/bin/chromium`),
 Mahoraga uses it instead of letting Browser Use download its own copy — handy in

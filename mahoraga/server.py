@@ -72,6 +72,15 @@ class WorkflowUpsert(BaseModel):
     description: str = ""
 
 
+class VaultAdd(BaseModel):
+    """Save a site credential. The password is write-only — never returned."""
+
+    domain: str
+    username: str
+    password: str
+    notes: str = ""
+
+
 async def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
     """Enforce the X-API-Key header when MAHORAGA_API_KEY is configured."""
     expected = os.environ.get(API_KEY_ENV)
@@ -222,6 +231,30 @@ def create_app() -> FastAPI:
             workflow.last_result = execution.result
         store.save(workflow)
         return execution.to_dict()
+
+    # ── Vault: saved site credentials ─────────────────────────────────────────
+
+    @app.get("/v1/vault")
+    async def list_vault(_: None = Depends(require_api_key)) -> dict:
+        from mahoraga.vault import Vault
+
+        return {"credentials": Vault().list()}  # metadata only, no passwords
+
+    @app.post("/v1/vault")
+    async def add_vault(body: VaultAdd, _: None = Depends(require_api_key)) -> dict:
+        from datetime import datetime, timezone
+
+        from mahoraga.vault import Vault
+
+        now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        entry = Vault().add(body.domain, body.username, body.password, body.notes, now=now)
+        return entry.metadata()
+
+    @app.delete("/v1/vault/{domain}")
+    async def delete_vault(domain: str, _: None = Depends(require_api_key)) -> dict:
+        from mahoraga.vault import Vault
+
+        return {"deleted": Vault().delete(domain)}
 
     # ── Console UI ────────────────────────────────────────────────────────────
 
