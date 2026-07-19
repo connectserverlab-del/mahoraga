@@ -22,4 +22,4 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["mahoraga"]
-artifacts = ["mahoraga/console/*.html"]
+artifacts = ["mahoraga/console/*.html", "mahoraga/console/assets/*"]

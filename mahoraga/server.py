@@ -225,6 +225,12 @@ def create_app() -> FastAPI:
 
     # ── Console UI ────────────────────────────────────────────────────────────
 
+    assets_dir = CONSOLE_DIR / "assets"
+    if assets_dir.is_dir():
+        from fastapi.staticfiles import StaticFiles
+
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
+
     @app.get("/")
     async def console() -> FileResponse:
         return FileResponse(CONSOLE_DIR / "index.html")
