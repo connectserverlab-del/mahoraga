@@ -1,0 +1,38 @@
+{
+  "name": "n8n-nodes-mahoraga",
+  "version": "0.1.0",
+  "description": "n8n community node to run Mahoraga AI browser-automation tasks (driven through a BrowserOS kernel).",
+  "keywords": [
+    "n8n-community-node-package",
+    "mahoraga",
+    "browser-use",
+    "browseros",
+    "automation"
+  ],
+  "license": "MIT",
+  "main": "index.js",
+  "scripts": {
+    "build": "tsc && node scripts/copy-assets.mjs",
+    "dev": "tsc --watch",
+    "lint": "tsc --noEmit"
+  },
+  "files": [
+    "dist"
+  ],
+  "n8n": {
+    "n8nNodesApiVersion": 1,
+    "credentials": [
+      "dist/credentials/MahoragaApi.credentials.js"
+    ],
+    "nodes": [
+      "dist/nodes/Mahoraga/Mahoraga.node.js"
+    ]
+  },
+  "devDependencies": {
+    "n8n-workflow": "*",
+    "typescript": "^5.4.0"
+  },
+  "peerDependencies": {
+    "n8n-workflow": "*"
+  }
+}

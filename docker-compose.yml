@@ -1,50 +1,68 @@
-# Mahoraga full stack in Docker: streamed browser + agent server.
+# Mahoraga stack — the layered architecture, wired end to end:
 #
-#   docker compose up -d --build
+#   n8n (Workflow Engine)  ──HTTP──▶  mahoraga (service)  ──Browser Use──▶
+#       browseros (kernel, CDP)  ──▶  Chrome / Edge / Firefox
 #
-# - Browser UI (KasmVNC stream): https://<host>:3001  (login from .env)
-# - Agent server / MCP endpoint: http://<host>:9100
-#
-# The server shares the browser's network namespace, so it reaches the
-# browser's CDP endpoint on localhost:9000 exactly like a local install.
-# For phone access over Tailscale, see selfhost/README.md — the same flow
-# applies to this stack.
+# n8n orchestrates; the Mahoraga node calls the mahoraga service; the service
+# drives the BrowserOS kernel over the DevTools Protocol.
+
 services:
-  browser:
-    image: lscr.io/linuxserver/chromium:latest
-    container_name: mahoraga-browser
-    security_opt:
-      - seccomp:unconfined
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=${TZ:-Etc/UTC}
-      - TITLE=Mahoraga
-      - CUSTOM_USER=${MAHORAGA_USER:-mahoraga}
-      - PASSWORD=${MAHORAGA_PASSWORD:?set MAHORAGA_PASSWORD in .env}
-      - CHROME_CLI=--remote-debugging-port=9000 --remote-debugging-address=127.0.0.1 --load-extension=/mahoraga-extension --new-window https://github.com/connectserverlab-del/mahoraga
-    volumes:
-      - browser-data:/config
-      - ./selfhost/extension:/mahoraga-extension:ro
-    ports:
-      - "3000:3000" # HTTP stream  — only behind Tailscale/VPN
-      - "3001:3001" # HTTPS stream (self-signed)
-      - "9100:9100" # agent server (lives in this netns via the server service)
-    shm_size: "2gb"
+  # ── BrowserOS kernel ──────────────────────────────────────────────────────
+  # BrowserOS is a Chromium-based agentic browser that exposes a CDP endpoint.
+  # Any CDP-speaking browser works as the kernel; this uses a headless Chromium
+  # placeholder so the stack runs out of the box. Swap `image` for a BrowserOS
+  # image to use the real kernel.
+  browseros:
+    image: zenika/alpine-chrome:latest
+    command:
+      - --headless=new
+      - --no-sandbox
+      - --disable-gpu
+      - --remote-debugging-address=0.0.0.0
+      - --remote-debugging-port=9222
+      - about:blank
+    expose:
+      - "9222"
     restart: unless-stopped
 
-  server:
-    build:
-      context: .
-      dockerfile: docker/server.Dockerfile
-    container_name: mahoraga-server
-    network_mode: "service:browser"
+  # ── Mahoraga service ──────────────────────────────────────────────────────
+  mahoraga:
+    build: .
+    environment:
+      # Drive the BrowserOS kernel instead of launching a local browser.
+      BROWSEROS_CDP_URL: "http://browseros:9222"
+      # Provide at least one LLM key (pass through from your shell / .env).
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+      MAHORAGA_LLM_PROVIDER: "${MAHORAGA_LLM_PROVIDER:-}"
+      # Optional: require this key on the API (the n8n credential must match).
+      MAHORAGA_API_KEY: "${MAHORAGA_API_KEY:-}"
+    expose:
+      - "8080"
+    ports:
+      - "8080:8080"
     depends_on:
-      - browser
+      - browseros
+    restart: unless-stopped
+
+  # ── n8n Workflow Engine ───────────────────────────────────────────────────
+  n8n:
+    image: n8nio/n8n:latest
+    environment:
+      N8N_PORT: "5678"
+      # Load the custom Mahoraga community node from the mounted build.
+      N8N_CUSTOM_EXTENSIONS: "/data/custom"
+      GENERIC_TIMEZONE: "UTC"
+    ports:
+      - "5678:5678"
     volumes:
-      - server-data:/data
+      - n8n_data:/home/node/.n8n
+      # Build integrations/n8n-nodes-mahoraga first (npm install && npm run build).
+      - ./integrations/n8n-nodes-mahoraga:/data/custom/n8n-nodes-mahoraga:ro
+    depends_on:
+      - mahoraga
     restart: unless-stopped
 
 volumes:
-  browser-data:
-  server-data:
+  n8n_data:
