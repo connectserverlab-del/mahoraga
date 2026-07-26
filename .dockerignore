@@ -1,0 +1,13 @@
+# Keep server image build context small
+.git
+docs
+packages/mahoraga
+selfhost/data
+selfhost/extension
+signatures
+tools
+updates
+**/node_modules
+**/.output
+**/.wxt
+**/target

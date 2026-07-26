@@ -329,6 +329,28 @@ Point the agent at a page, tell it what to pull, and get structured data back. <
 - **Bring your own AI.** 11+ providers, or fully local with Ollama and LM Studio. [Provider list](https://docs.mahoraga.com/features/bring-your-own-llm)
 - **Real ad blocking.** uBlock Origin with full Manifest V2 support. [Docs](https://docs.mahoraga.com/features/ad-blocking)
 
+### Run with Docker
+
+Run the whole stack — streamed browser plus the Mahoraga agent server — with one command:
+
+```bash
+./selfhost/build-extension.sh          # stage the agent extension
+echo "MAHORAGA_PASSWORD=change-me" > .env
+docker compose up -d --build
+```
+
+The browser UI streams at `https://<host>:3001` and the agent server's MCP endpoint
+listens on port `9100`. The server container shares the browser container's network
+namespace, so it drives the browser over CDP on `localhost:9000` just like a local
+install. See [`docker-compose.yml`](docker-compose.yml) and
+[`docker/server.Dockerfile`](docker/server.Dockerfile).
+
+### Use it from your phone
+
+Run Mahoraga on a server and stream it to your phone's browser — see the
+[self-host guide](selfhost/README.md) for a Docker Compose stack with Tailscale-secured
+remote access.
+
 ### Roadmap ideas
 
 Mahoraga is named after the wheel that adapts to anything — see [SUGGESTED_FEATURES.md](SUGGESTED_FEATURES.md) for proposed features (adaptive site memory, multi-tab agent orchestration, prompt-to-workflow builder, and more).
