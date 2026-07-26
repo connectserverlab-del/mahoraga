@@ -1,0 +1,25 @@
+# Mahoraga self-host stack — run the browser on a server, use it from your phone.
+# See selfhost/README.md for the full walkthrough.
+services:
+  mahoraga:
+    image: lscr.io/linuxserver/chromium:latest
+    container_name: mahoraga
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ:-Etc/UTC}
+      - TITLE=Mahoraga
+      - CUSTOM_USER=${MAHORAGA_USER:-mahoraga}
+      - PASSWORD=${MAHORAGA_PASSWORD:?set MAHORAGA_PASSWORD in selfhost/.env}
+      # Load the Mahoraga agent extension (run ./build-extension.sh first).
+      - CHROME_CLI=--load-extension=/mahoraga-extension --new-window https://github.com/connectserverlab-del/mahoraga
+    volumes:
+      - ./data:/config
+      - ./extension:/mahoraga-extension:ro
+    ports:
+      - "3000:3000" # HTTP  — only use behind Tailscale/VPN
+      - "3001:3001" # HTTPS (self-signed)
+    shm_size: "2gb"
+    restart: unless-stopped
