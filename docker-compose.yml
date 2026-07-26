@@ -53,13 +53,17 @@ services:
       N8N_PORT: "5678"
       # Load the custom Mahoraga community node from the mounted build.
       N8N_CUSTOM_EXTENSIONS: "/data/custom"
-      GENERIC_TIMEZONE: "UTC"
+      GENERIC_TIMEZONE: "${TZ:-UTC}"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      N8N_VERSION_NOTIFICATIONS_ENABLED: "false"
     ports:
       - "5678:5678"
     volumes:
       - n8n_data:/home/node/.n8n
       # Build integrations/n8n-nodes-mahoraga first (npm install && npm run build).
       - ./integrations/n8n-nodes-mahoraga:/data/custom/n8n-nodes-mahoraga:ro
+      # Importable starter workflows (Workflows -> Import from file).
+      - ./docker/n8n/workflows:/workflows:ro
     depends_on:
       - mahoraga
     restart: unless-stopped
