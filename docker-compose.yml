@@ -1,0 +1,50 @@
+# Mahoraga full stack in Docker: streamed browser + agent server.
+#
+#   docker compose up -d --build
+#
+# - Browser UI (KasmVNC stream): https://<host>:3001  (login from .env)
+# - Agent server / MCP endpoint: http://<host>:9100
+#
+# The server shares the browser's network namespace, so it reaches the
+# browser's CDP endpoint on localhost:9000 exactly like a local install.
+# For phone access over Tailscale, see selfhost/README.md — the same flow
+# applies to this stack.
+services:
+  browser:
+    image: lscr.io/linuxserver/chromium:latest
+    container_name: mahoraga-browser
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ:-Etc/UTC}
+      - TITLE=Mahoraga
+      - CUSTOM_USER=${MAHORAGA_USER:-mahoraga}
+      - PASSWORD=${MAHORAGA_PASSWORD:?set MAHORAGA_PASSWORD in .env}
+      - CHROME_CLI=--remote-debugging-port=9000 --remote-debugging-address=127.0.0.1 --load-extension=/mahoraga-extension --new-window https://github.com/connectserverlab-del/mahoraga
+    volumes:
+      - browser-data:/config
+      - ./selfhost/extension:/mahoraga-extension:ro
+    ports:
+      - "3000:3000" # HTTP stream  — only behind Tailscale/VPN
+      - "3001:3001" # HTTPS stream (self-signed)
+      - "9100:9100" # agent server (lives in this netns via the server service)
+    shm_size: "2gb"
+    restart: unless-stopped
+
+  server:
+    build:
+      context: .
+      dockerfile: docker/server.Dockerfile
+    container_name: mahoraga-server
+    network_mode: "service:browser"
+    depends_on:
+      - browser
+    volumes:
+      - server-data:/data
+    restart: unless-stopped
+
+volumes:
+  browser-data:
+  server-data:
