@@ -156,6 +156,37 @@
   .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--surface-3); color: var(--ink);
     border: 1px solid var(--line-2); border-radius: 10px; padding: 10px 16px; font-size: 13px; opacity: 0; transition: .2s; pointer-events: none; box-shadow: var(--shadow-lg); }
   .toast.show { opacity: 1; }
+
+  /* ── Voice assistant (sakura tree) ──────────────────────────────────────── */
+  .voice-assistant { position: fixed; right: 22px; bottom: 22px; width: 176px; z-index: 40;
+    display: flex; flex-direction: column; align-items: center; gap: 8px; font: inherit; }
+  .voice-orb { position: relative; width: 176px; height: 176px; border-radius: 50%; overflow: hidden;
+    background: var(--surface); border: 1px solid var(--line-2); box-shadow: var(--shadow-lg);
+    cursor: pointer; transition: box-shadow .2s, border-color .2s; }
+  .voice-orb:hover { border-color: var(--line-2); }
+  .voice-orb video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover;
+    opacity: 0; transition: opacity .45s ease; }
+  .voice-orb video.active { opacity: 1; }
+  .voice-orb .ring { position: absolute; inset: -1px; border-radius: 50%; pointer-events: none;
+    box-shadow: 0 0 0 0 var(--teal-100); transition: box-shadow .3s; }
+  .voice-assistant[data-state="listening"] .ring { box-shadow: 0 0 0 6px var(--teal-100); animation: va-pulse 1.4s ease-in-out infinite; }
+  .voice-assistant[data-state="thinking"] .ring { box-shadow: 0 0 0 4px var(--amber-050); }
+  .voice-assistant[data-state="speaking"] .ring { box-shadow: 0 0 0 6px var(--ok-050); animation: va-pulse 1s ease-in-out infinite; }
+  @keyframes va-pulse { 0%,100% { box-shadow: 0 0 0 4px var(--teal-100); } 50% { box-shadow: 0 0 0 10px transparent; } }
+  .voice-status { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; font-weight: 600; }
+  .voice-status .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); margin-right: 5px; }
+  .voice-assistant[data-state="listening"] .voice-status .dot { background: var(--teal); }
+  .voice-assistant[data-state="thinking"] .voice-status .dot { background: var(--amber); }
+  .voice-assistant[data-state="speaking"] .voice-status .dot { background: var(--ok); }
+  .voice-transcript { max-width: 220px; text-align: center; font-size: 12px; color: var(--ink-2);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 11px;
+    box-shadow: var(--shadow); display: none; }
+  .voice-transcript.show { display: block; }
+  .voice-mic { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
+    width: 30px; height: 30px; border-radius: 50%; background: rgba(11,11,13,.55); backdrop-filter: blur(2px);
+    border: 1px solid rgba(255,255,255,.18); display: flex; align-items: center; justify-content: center;
+    color: #fff; pointer-events: none; }
+  .voice-assistant[data-state="listening"] .voice-mic { color: var(--teal); }
 </style>
 </head>
 <body>
@@ -249,6 +280,22 @@
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- Voice assistant: a sakura tree that sways through idle / listening / thinking / speaking states -->
+<div class="voice-assistant" id="voice-assistant" data-state="idle" title="Click to talk to Mahoraga">
+  <div class="voice-orb" id="voice-orb">
+    <video id="va-video-idle" class="active" muted autoplay loop playsinline preload="auto" src="/assets/voice/idle.mp4"></video>
+    <video id="va-video-listening" muted autoplay loop playsinline preload="auto" src="/assets/voice/listening.mp4"></video>
+    <video id="va-video-thinking" muted autoplay loop playsinline preload="auto" src="/assets/voice/thinking.mp4"></video>
+    <video id="va-video-speaking" muted autoplay loop playsinline preload="auto" src="/assets/voice/speaking.mp4"></video>
+    <div class="ring"></div>
+    <svg class="voice-mic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
+    </svg>
+  </div>
+  <div class="voice-status"><span class="dot"></span><span id="voice-status-text">Idle</span></div>
+  <div class="voice-transcript" id="voice-transcript"></div>
+</div>
 
 <script>
 const $ = s => document.querySelector(s);
@@ -484,6 +531,96 @@ $('#vault-list').addEventListener('click', async (e) => {
   await api('/v1/vault/'+encodeURIComponent(btn.dataset.domain), { method:'DELETE' });
   toast('Removed'); loadVault();
 });
+
+// ── Voice assistant (sakura tree: idle / listening / thinking / speaking) ────
+const VoiceAssistant = (() => {
+  const root = $('#voice-assistant');
+  const orb = $('#voice-orb');
+  const statusText = $('#voice-status-text');
+  const transcriptEl = $('#voice-transcript');
+  const videos = {
+    idle: $('#va-video-idle'), listening: $('#va-video-listening'),
+    thinking: $('#va-video-thinking'), speaking: $('#va-video-speaking'),
+  };
+  const labels = { idle: 'Idle', listening: 'Listening…', thinking: 'Thinking…', speaking: 'Speaking…' };
+  const SpeechRecognitionImpl = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let state = 'idle';
+  let recognition = null;
+
+  function setState(next) {
+    state = next;
+    root.dataset.state = next;
+    Object.entries(videos).forEach(([name, v]) => {
+      if (name === next) { v.classList.add('active'); v.play().catch(() => {}); }
+      else v.classList.remove('active');
+    });
+    statusText.textContent = labels[next] || next;
+  }
+
+  function showTranscript(text) {
+    if (!text) { transcriptEl.classList.remove('show'); transcriptEl.textContent = ''; return; }
+    transcriptEl.textContent = text; transcriptEl.classList.add('show');
+  }
+
+  function speak(text) {
+    if (!('speechSynthesis' in window)) { setState('idle'); showTranscript(''); return; }
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.onstart = () => setState('speaking');
+    utter.onend = () => { setState('idle'); showTranscript(''); };
+    utter.onerror = () => { setState('idle'); showTranscript(''); };
+    window.speechSynthesis.speak(utter);
+  }
+
+  async function handleUtterance(text) {
+    showTranscript(`“${text}”`);
+    setState('thinking');
+    try {
+      const r = await api('/v1/wheel/run', { method: 'POST', body: JSON.stringify({ task: text }) });
+      speak(r.result || r.error || "I didn't get a result for that.");
+      loadWorkflows();
+    } catch (e) {
+      speak(`Something went wrong: ${e.message}`);
+    }
+  }
+
+  function startListening() {
+    if (!SpeechRecognitionImpl) return toast('Speech recognition is not supported in this browser');
+    if (state !== 'idle') return;
+    recognition = new SpeechRecognitionImpl();
+    recognition.lang = 'en-US';
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+    let finalTranscript = '';
+    recognition.onresult = (ev) => {
+      let interim = '';
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        const t = ev.results[i][0].transcript;
+        if (ev.results[i].isFinal) finalTranscript += t; else interim += t;
+      }
+      showTranscript((finalTranscript + interim).trim());
+    };
+    recognition.onend = () => {
+      if (state !== 'listening') return;
+      const text = finalTranscript.trim();
+      if (text) handleUtterance(text); else { setState('idle'); showTranscript(''); }
+    };
+    recognition.onerror = () => { setState('idle'); showTranscript(''); toast('Could not hear you — try again'); };
+    setState('listening');
+    recognition.start();
+  }
+
+  function stopListening() { if (recognition) recognition.stop(); }
+
+  orb.addEventListener('click', () => {
+    if (state === 'idle') startListening();
+    else if (state === 'listening') stopListening();
+    else if (state === 'speaking') { window.speechSynthesis.cancel(); setState('idle'); showTranscript(''); }
+  });
+
+  setState('idle');
+  return { setState };
+})();
 
 $('#run-wheel').addEventListener('click', runWheel);
 $('#task').addEventListener('keydown', e => { if (e.key === 'Enter' && (e.metaKey||e.ctrlKey)) runWheel(); });
