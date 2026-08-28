@@ -26,7 +26,16 @@
   html, body { height: 100%; margin: 0; }
   body { background: var(--paper); color: var(--ink); font: 14px/1.55 var(--font); -webkit-font-smoothing: antialiased;
     letter-spacing: -.006em; font-feature-settings: 'cv02','cv03','cv04','cv11','ss01'; text-rendering: optimizeLegibility; }
-  .app { display: flex; height: 100vh; }
+  .app { display: flex; height: 100vh; position: fixed; inset: 0; z-index: 50;
+    background: rgba(11,11,13,.72); backdrop-filter: saturate(150%) blur(20px);
+    -webkit-backdrop-filter: saturate(150%) blur(20px); }
+  .app.console-hidden { display: none; }
+  .console-hint { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 45;
+    font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: var(--ink-2);
+    background: rgba(21,21,23,.55); border: 1px solid var(--line); border-radius: 20px;
+    padding: 8px 16px; backdrop-filter: blur(10px); pointer-events: none;
+    opacity: .85; transition: opacity .3s ease; }
+  .console-hint.console-open { opacity: 0; }
 
   /* ── Sidebar ─────────────────────────────────────────────────────────── */
   .sidebar { width: 272px; flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--line);
@@ -157,43 +166,41 @@
     border: 1px solid var(--line-2); border-radius: 10px; padding: 10px 16px; font-size: 13px; opacity: 0; transition: .2s; pointer-events: none; box-shadow: var(--shadow-lg); }
   .toast.show { opacity: 1; }
 
-  /* ── Voice assistant (dark-gold dragon orbiting a 3D sphere) ─────────────── */
-  .voice-assistant { position: fixed; right: 22px; bottom: 22px; width: 176px; z-index: 40;
-    display: flex; flex-direction: column; align-items: center; gap: 8px; font: inherit; }
-  .voice-orb { position: relative; width: 176px; height: 176px; border-radius: 50%; overflow: visible;
-    background: var(--surface); border: 1px solid var(--line-2); box-shadow: var(--shadow-lg);
-    cursor: pointer; transition: box-shadow .2s, border-color .2s; }
-  .voice-orb:hover { border-color: var(--line-2); }
-  .voice-orb #sphere-canvas { position: absolute; inset: 0; width: 100%; height: 100%;
-    border-radius: 50%; display: block; }
-  .voice-orb .dragon-sprite { position: absolute; top: 50%; left: 50%; width: 132px; height: 56px;
-    margin: -28px 0 0 -66px; background-image: url('/assets/dragon-flight.png');
-    background-repeat: no-repeat; background-size: calc(132px * 21) 56px;
-    pointer-events: none; will-change: transform, opacity; filter: drop-shadow(0 3px 6px rgba(0,0,0,.5)); }
-  .voice-orb .ring { position: absolute; inset: -1px; border-radius: 50%; pointer-events: none;
-    box-shadow: 0 0 0 0 var(--teal-100); transition: box-shadow .3s; }
-  .voice-assistant[data-state="listening"] .ring { box-shadow: 0 0 0 6px var(--teal-100); animation: va-pulse 1.4s ease-in-out infinite; }
-  .voice-assistant[data-state="thinking"] .ring { box-shadow: 0 0 0 4px var(--amber-050); }
-  .voice-assistant[data-state="speaking"] .ring { box-shadow: 0 0 0 6px var(--ok-050); animation: va-pulse 1s ease-in-out infinite; }
-  @keyframes va-pulse { 0%,100% { box-shadow: 0 0 0 4px var(--teal-100); } 50% { box-shadow: 0 0 0 10px transparent; } }
-  .voice-status { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; font-weight: 600; }
+  /* ── Domain: dark-gold dragon orbiting a 3D sphere, fullscreen ────────────
+     This is the whole interface at load — no chat UI in view. The console
+     (workflow builder, sidebar, vault) lives in `.app`, toggled with `\`. ── */
+  .voice-assistant { position: fixed; inset: 0; z-index: 1; font: inherit; }
+  .voice-orb { position: absolute; inset: 0; overflow: hidden; background: var(--paper);
+    cursor: pointer; }
+  .voice-orb #sphere-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .voice-orb .dragon-sprite { position: absolute; top: 50%; left: 50%;
+    background-image: url('/assets/dragon-flight.png'); background-repeat: no-repeat;
+    pointer-events: none; will-change: transform, opacity; filter: drop-shadow(0 6px 14px rgba(0,0,0,.55)); }
+  .voice-orb .ring { position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at 50% 50%, var(--teal-050) 0%, transparent 62%);
+    opacity: .5; transition: background .4s ease, opacity .4s ease; }
+  .voice-assistant[data-state="idle"] .ring { background: radial-gradient(ellipse at 50% 50%, rgba(212,175,55,.16) 0%, transparent 62%); }
+  .voice-assistant[data-state="listening"] .ring { background: radial-gradient(ellipse at 50% 50%, var(--teal-100) 0%, transparent 62%); opacity: .8; animation: va-pulse 1.4s ease-in-out infinite; }
+  .voice-assistant[data-state="thinking"] .ring { background: radial-gradient(ellipse at 50% 50%, var(--amber-050) 0%, transparent 62%); opacity: .7; }
+  .voice-assistant[data-state="speaking"] .ring { background: radial-gradient(ellipse at 50% 50%, var(--ok-050) 0%, transparent 62%); opacity: .8; animation: va-pulse 1s ease-in-out infinite; }
+  @keyframes va-pulse { 0%,100% { opacity: .55; } 50% { opacity: .9; } }
+  .voice-status { position: fixed; left: 50%; bottom: 62px; transform: translateX(-50%); z-index: 2;
+    font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .09em; font-weight: 600;
+    background: rgba(21,21,23,.5); border: 1px solid var(--line); border-radius: 20px; padding: 6px 14px;
+    backdrop-filter: blur(10px); pointer-events: none; }
   .voice-status .dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); margin-right: 5px; }
   .voice-assistant[data-state="listening"] .voice-status .dot { background: var(--teal); }
   .voice-assistant[data-state="thinking"] .voice-status .dot { background: var(--amber); }
   .voice-assistant[data-state="speaking"] .voice-status .dot { background: var(--ok); }
-  .voice-transcript { max-width: 220px; text-align: center; font-size: 12px; color: var(--ink-2);
-    background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 11px;
-    box-shadow: var(--shadow); display: none; }
+  .voice-transcript { position: fixed; left: 50%; bottom: 94px; transform: translateX(-50%); z-index: 2;
+    max-width: min(80vw, 420px); text-align: center; font-size: 13px; color: var(--ink-2);
+    background: rgba(21,21,23,.6); border: 1px solid var(--line); border-radius: 12px; padding: 9px 14px;
+    backdrop-filter: blur(10px); box-shadow: var(--shadow); display: none; pointer-events: none; }
   .voice-transcript.show { display: block; }
-  .voice-mic { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%);
-    width: 30px; height: 30px; border-radius: 50%; background: rgba(11,11,13,.55); backdrop-filter: blur(2px);
-    border: 1px solid rgba(255,255,255,.18); display: flex; align-items: center; justify-content: center;
-    color: #fff; pointer-events: none; }
-  .voice-assistant[data-state="listening"] .voice-mic { color: var(--teal); }
 </style>
 </head>
 <body>
-<div class="app">
+<div class="app console-hidden" id="console-ui">
   <!-- Sidebar -->
   <aside class="sidebar">
     <div class="brand">
@@ -284,20 +291,21 @@
 
 <div class="toast" id="toast"></div>
 
-<!-- Voice assistant: a dark-gold metallic Chinese dragon flying around a 3D sphere,
-     through idle / listening / thinking / speaking states -->
+<!-- The domain: a dark-gold metallic Chinese dragon flying around a 3D sphere,
+     fullscreen and the only thing on load. Idle / listening / thinking /
+     speaking states drive its orbit speed, sphere rotation, and glow.
+     The console (workflow builder, sidebar, vault) is `#console-ui` above,
+     hidden by default and toggled with `\`. -->
 <div class="voice-assistant" id="voice-assistant" data-state="idle" title="Click to talk to Mahoraga">
   <div class="voice-orb" id="voice-orb">
-    <canvas id="sphere-canvas" width="176" height="176"></canvas>
+    <canvas id="sphere-canvas"></canvas>
     <div class="ring"></div>
     <div id="dragon-sprite" class="dragon-sprite"></div>
-    <svg class="voice-mic" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/>
-    </svg>
   </div>
   <div class="voice-status"><span class="dot"></span><span id="voice-status-text">Idle</span></div>
   <div class="voice-transcript" id="voice-transcript"></div>
 </div>
+<div class="console-hint" id="console-hint">Click to speak · Press \ for console</div>
 
 <script>
 const $ = s => document.querySelector(s);
@@ -542,13 +550,12 @@ const DragonScene = (() => {
   const canvas = $('#sphere-canvas');
   const ctx = canvas.getContext('2d');
   const dragon = $('#dragon-sprite');
-  const DPR = Math.min(window.devicePixelRatio || 1, 2);
-  const SIZE = 176;
-  canvas.width = SIZE * DPR; canvas.height = SIZE * DPR;
-  ctx.scale(DPR, DPR);
+
+  // Native sprite sheet: 21 frames of 320×136 each.
+  const FRAME_COUNT = 21, NATIVE_FRAME_W = 320, NATIVE_FRAME_H = 136;
 
   // Fibonacci point-cloud sphere
-  const N = 420, R = 68;
+  const N = 520;
   const GOLDEN = Math.PI * (3 - Math.sqrt(5));
   const pts = [];
   for (let i = 0; i < N; i++) {
@@ -563,10 +570,39 @@ const DragonScene = (() => {
     idle: 'rgba(212,175,55,.35)', listening: 'rgba(240,67,58,.4)',
     thinking: 'rgba(227,173,74,.45)', speaking: 'rgba(67,209,127,.4)',
   };
+  const ORBIT_SPEED = { idle: 0.55, listening: 1.1, thinking: 1.7, speaking: 1.35 };
 
-  const FRAME_COUNT = 21, FRAME_W = 132, FRAME_H = 56;
-  const ORBIT_A = 92, ORBIT_B = 34;
-  const ORBIT_SPEED = { idle: 0.7, listening: 1.5, thinking: 2.3, speaking: 1.8 };
+  // Layout is recomputed from viewport size so the whole scene fills the
+  // screen at any window shape, reusing the same fixed-resolution assets.
+  let W = 0, H = 0, DPR = 1, cx = 0, cy = 0, R = 0;
+  let ORBIT_A = 0, ORBIT_B = 0, FRAME_W = 0, FRAME_H = 0;
+
+  function layout() {
+    W = window.innerWidth; H = window.innerHeight;
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = W * DPR; canvas.height = H * DPR;
+    canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    cx = W / 2; cy = H * 0.46;
+    const minDim = Math.min(W, H);
+    R = minDim * 0.24;
+    ORBIT_A = minDim * 0.34; ORBIT_B = minDim * 0.13;
+    FRAME_W = Math.min(minDim * 0.46, 460);
+    FRAME_H = FRAME_W * (NATIVE_FRAME_H / NATIVE_FRAME_W);
+    dragon.style.width = FRAME_W + 'px';
+    dragon.style.height = FRAME_H + 'px';
+    dragon.style.marginTop = (-FRAME_H / 2) + 'px';
+    dragon.style.marginLeft = (-FRAME_W / 2) + 'px';
+    dragon.style.backgroundSize = (FRAME_W * FRAME_COUNT) + 'px ' + FRAME_H + 'px';
+    dragon.style.top = cy + 'px';
+    dragon.style.left = cx + 'px';
+  }
+  layout();
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(layout, 120);
+  });
 
   let rot = 0, orbitAngle = 0, frame = 0, frameDir = 1, frameAcc = 0;
   let state = 'idle', t0 = null;
@@ -574,19 +610,18 @@ const DragonScene = (() => {
 
   function drawSphere(dt) {
     rot += (SPEED[state] || 0.2) * dt;
-    ctx.clearRect(0, 0, SIZE, SIZE);
-    const cx = SIZE / 2, cy = SIZE / 2;
-    const glow = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 1.35);
+    ctx.clearRect(0, 0, W, H);
+    const glow = ctx.createRadialGradient(cx, cy, R * 0.2, cx, cy, R * 1.6);
     glow.addColorStop(0, GLOW[state] || GLOW.idle);
     glow.addColorStop(1, 'rgba(11,11,13,0)');
-    ctx.fillStyle = glow; ctx.fillRect(0, 0, SIZE, SIZE);
+    ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
 
     const cos = Math.cos(rot), sin = Math.sin(rot);
     const projected = pts.map((p) => {
       const x = p.x * cos - p.z * sin;
       const z = p.x * sin + p.z * cos;
       const scale = 1 / (1.9 - z);
-      return { x: cx + x * R * scale, y: cy + p.y * R * scale, z, size: Math.max(0.6, 2.4 * scale) };
+      return { x: cx + x * R * scale, y: cy + p.y * R * scale, z, size: Math.max(0.6, 2.6 * scale) };
     }).sort((a, b) => a.z - b.z);
 
     for (const p of projected) {
@@ -723,6 +758,22 @@ $('#apikey').value = localStorage.getItem('mah_key')||'';
 $('#apikey').addEventListener('change', e => localStorage.setItem('mah_key', e.target.value));
 
 health(); loadWorkflows(); newWorkflow(); loadVault();
+
+// ── Console toggle: the workflow builder/sidebar is hidden by default so
+// the dragon domain is the whole interface; `\` (or Escape to close) brings
+// it back over a frosted scrim. ────────────────────────────────────────────
+(() => {
+  const consoleUi = $('#console-ui');
+  const hint = $('#console-hint');
+  function setOpen(open) {
+    consoleUi.classList.toggle('console-hidden', !open);
+    hint.classList.toggle('console-open', open);
+  }
+  window.addEventListener('keydown', (e) => {
+    if (e.key === '\\') { e.preventDefault(); setOpen(consoleUi.classList.contains('console-hidden')); }
+    else if (e.key === 'Escape' && !consoleUi.classList.contains('console-hidden')) setOpen(false);
+  });
+})();
 </script>
 </body>
 </html>
