@@ -645,7 +645,7 @@ const VoiceAssistant = (() => {
   });
 
   setState('idle');
-  return { setState };
+  return { setState, startListening, getState: () => state };
 })();
 
 $('#run-wheel').addEventListener('click', runWheel);
@@ -654,6 +654,159 @@ $('#apikey').value = localStorage.getItem('mah_key')||'';
 $('#apikey').addEventListener('change', e => localStorage.setItem('mah_key', e.target.value));
 
 health(); loadWorkflows(); newWorkflow(); loadVault();
+
+// ── Wake triggers: say "Omni", or clap ──────────────────────────────────────
+// Two detectors, deliberately separate because their privacy profiles differ:
+//
+//   clap  — pure local DSP (Web Audio). Audio never leaves the machine.
+//   "Omni" — SpeechRecognition, which in Chrome streams microphone audio to
+//            Google's servers. Always-on wake word therefore means always-on
+//            streaming. Kept independently switchable for that reason.
+//
+// Both only arm while the assistant is idle, so Mahoraga's own speech and the
+// task you are dictating can't re-trigger it.
+const Wake = (() => {
+  const WAKE_WORD = /\bomni\b/i;
+  const REFRACTORY_MS = 700;      // ignore retriggers inside this window
+  const SPIKE_RATIO   = 7;        // energy must exceed rolling baseline by this
+  const ABS_FLOOR     = 0.035;    // ...and clear this absolute RMS, to ignore hiss
+  const HF_MIN        = 0.35;     // claps are broadband; speech is not
+
+  let prefs = { clap: true, word: true };
+  try { Object.assign(prefs, JSON.parse(localStorage.getItem('mah_wake') || '{}')); } catch {}
+  const savePrefs = () => { try { localStorage.setItem('mah_wake', JSON.stringify(prefs)); } catch {} };
+
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let armed = false, stream = null, ctx = null, analyser = null;
+  let baseline = 0, lastTrigger = 0, rafId = null;
+  let wordRec = null, wantWordRec = false, triggering = false;
+
+  const idle = () => VoiceAssistant.getState() === 'idle';
+
+  function trigger(how) {
+    if (triggering || !idle()) return;
+    const now = performance.now();
+    if (now - lastTrigger < REFRACTORY_MS) return;
+    lastTrigger = now;
+    triggering = true;
+    stopWordRec();                       // one recognizer at a time in Chrome
+    setTimeout(() => {                   // let onend land before the task one starts
+      triggering = false;
+      if (idle()) { toast(how === 'clap' ? 'Clap detected' : 'Heard "Omni"'); VoiceAssistant.startListening(); }
+    }, 180);
+  }
+
+  // ── clap: a sharp broadband transient well above the rolling noise floor ──
+  function listenForClaps() {
+    const buf = new Float32Array(analyser.fftSize);
+    const freq = new Uint8Array(analyser.frequencyBinCount);
+    const nyquist = ctx.sampleRate / 2;
+    const hfFrom = Math.floor((2000 / nyquist) * analyser.frequencyBinCount);
+
+    (function tick() {
+      rafId = requestAnimationFrame(tick);
+      if (!prefs.clap) return;
+      analyser.getFloatTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+      const rms = Math.sqrt(sum / buf.length);
+
+      if (idle() && rms > ABS_FLOOR && rms > baseline * SPIKE_RATIO) {
+        analyser.getByteFrequencyData(freq);
+        let hf = 0, all = 0;
+        for (let i = 0; i < freq.length; i++) { all += freq[i]; if (i >= hfFrom) hf += freq[i]; }
+        if (all > 0 && hf / all > HF_MIN) trigger('clap');
+      }
+      // Baseline tracks slowly, and never while the assistant is talking, so a
+      // long noise burst can't quietly raise the bar out of reach.
+      if (idle()) baseline = baseline * 0.95 + rms * 0.05;
+    })();
+  }
+
+  // ── wake word ─────────────────────────────────────────────────────────────
+  function startWordRec() {
+    if (!prefs.word || !SR || wordRec || !idle()) return;
+    wantWordRec = true;
+    const r = new SR();
+    r.lang = 'en-US'; r.continuous = true; r.interimResults = true; r.maxAlternatives = 1;
+    r.onresult = (ev) => {
+      for (let i = ev.resultIndex; i < ev.results.length; i++) {
+        if (WAKE_WORD.test(ev.results[i][0].transcript)) { trigger('word'); return; }
+      }
+    };
+    // Chrome ends continuous recognition on its own every so often; restart it.
+    r.onend = () => { wordRec = null; if (wantWordRec && prefs.word && idle()) setTimeout(startWordRec, 250); };
+    r.onerror = (e) => { if (e.error === 'not-allowed' || e.error === 'service-not-allowed') { prefs.word = false; savePrefs(); render(); } };
+    wordRec = r;
+    try { r.start(); } catch { wordRec = null; }
+  }
+  function stopWordRec() { wantWordRec = false; if (wordRec) { try { wordRec.stop(); } catch {} } }
+
+  // Resume the wake word whenever the assistant returns to idle.
+  setInterval(() => {
+    if (!armed) return;
+    if (prefs.word && idle() && !wordRec && !triggering) startWordRec();
+    else if (!idle() && wordRec) stopWordRec();
+  }, 700);
+
+  async function arm() {
+    if (armed) return true;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false },
+      });
+    } catch { toast('Microphone permission is required for wake triggers'); return false; }
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = ctx.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    armed = true;
+    listenForClaps();
+    startWordRec();
+    render();
+    return true;
+  }
+
+  function disarm() {
+    armed = false;
+    stopWordRec();
+    if (rafId) cancelAnimationFrame(rafId), rafId = null;
+    if (stream) stream.getTracks().forEach(t => t.stop()), stream = null;
+    if (ctx) ctx.close().catch(() => {}), ctx = null;
+    render();
+  }
+
+  function render() {
+    const hint = $('#console-hint');
+    if (!hint) return;
+    const on = armed && (prefs.clap || prefs.word);
+    const parts = [];
+    if (armed && prefs.word) parts.push('say "Omni"');
+    if (armed && prefs.clap) parts.push('clap');
+    hint.textContent = on
+      ? `${parts.join(' or ')} to speak · \\ console · f fullscreen · w wake off`
+      : 'Click to speak · \\ console · f fullscreen · w wake on';
+  }
+
+  // Browsers only grant a microphone after a real gesture, so arm on first click.
+  window.addEventListener('pointerdown', function once() {
+    window.removeEventListener('pointerdown', once);
+    if (prefs.clap || prefs.word) arm();
+  }, { once: true });
+
+  window.addEventListener('keydown', (e) => {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
+    if (e.key !== 'w' && e.key !== 'W') return;
+    e.preventDefault();
+    if (armed) { prefs.clap = prefs.word = false; savePrefs(); disarm(); toast('Wake triggers off'); }
+    else { prefs.clap = prefs.word = true; savePrefs(); arm().then(ok => ok && toast('Wake triggers on')); }
+  });
+
+  render();
+  return { arm, disarm, prefs, savePrefs, render, isArmed: () => armed };
+})();
 
 // ── Console toggle: the workflow builder/sidebar is hidden by default so
 // the dragon domain is the whole interface; `\` (or Escape to close) brings
@@ -666,8 +819,18 @@ health(); loadWorkflows(); newWorkflow(); loadVault();
     hint.classList.toggle('console-open', open);
   }
   window.addEventListener('keydown', (e) => {
+    const t = e.target;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return;
     if (e.key === '\\') { e.preventDefault(); setOpen(consoleUi.classList.contains('console-hidden')); }
     else if (e.key === 'Escape' && !consoleUi.classList.contains('console-hidden')) setOpen(false);
+    // `f` goes true-fullscreen: the browser's own chrome is the only thing left
+    // cropping the domain, and the Fullscreen API is the only way to shed it
+    // from inside the page. Escape leaves, handled natively by the browser.
+    else if (e.key === 'f' || e.key === 'F') {
+      e.preventDefault();
+      if (document.fullscreenElement) document.exitFullscreen?.();
+      else document.documentElement.requestFullscreen?.().catch(() => {});
+    }
   });
 })();
 </script>
