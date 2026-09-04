@@ -120,7 +120,7 @@
   <div class="grp"><span class="gl">deck</span>
     <button data-cmd="summon"><kbd>Space</kbd>New tab</button><button data-cmd="prev"><kbd>←</kbd>Prev</button><button data-cmd="next"><kbd>→</kbd>Next</button>
     <button data-cmd="back"><kbd>B</kbd>Send back</button><button data-cmd="duplicate"><kbd>D</kbd>Duplicate</button><button data-cmd="close"><kbd>Esc</kbd>Close</button>
-    <button data-cmd="click"><kbd>C</kbd>Click</button><button data-cmd="think" id="b-think" aria-pressed="false"><kbd>T</kbd>Thinking</button><button data-cmd="calm" id="b-calm" aria-pressed="false"><kbd>M</kbd>Calm</button>
+    <button data-cmd="click"><kbd>C</kbd>Click</button><button data-cmd="think" id="b-think" aria-pressed="false"><kbd>T</kbd>Thinking</button><button data-cmd="calm" id="b-calm" aria-pressed="false"><kbd>M</kbd>Calm</button><button data-cmd="petals" id="b-petals"><kbd>P</kbd>Petals: real</button>
   </div>
   <div class="grp" id="grp-3D"><span class="gl">3D</span></div>
   <div class="grp" id="grp-compound"><span class="gl">compound</span></div>
@@ -215,7 +215,9 @@ const TINTS = [['#fbe4ec', '#f2b7cb'], ['#f9d5e0', '#eea6bf'], ['#fdeff4', '#f4c
   ['#f7dcc4', '#d9a06e'],   // 8 tan: Venus, Jupiter, Saturn
 ];
 const SPRITE = 28;
-const sprites = TINTS.map(([light, deep]) => {
+// Dyes, by index, shared by both sprite sets: 4 mauve, 5 gold, 6 blue, 7 rust, 8 tan.
+const DYES = { 4: ['#8c5f7c', 0.7], 5: ['#f0b85a', 0.3], 6: ['#7aa6da', 0.4], 7: ['#d4735c', 0.45], 8: ['#d9a06e', 0.3] };   // mauve is a shadow tone, not a highlight
+const procSprites = TINTS.map(([light, deep]) => {
   const c = document.createElement('canvas'); c.width = c.height = SPRITE * 2;
   const g = c.getContext('2d'); g.scale(2, 2); g.translate(SPRITE / 2, SPRITE / 2);
   const grad = g.createRadialGradient(0, 2, 1, 0, 0, SPRITE / 2);
@@ -226,11 +228,45 @@ const sprites = TINTS.map(([light, deep]) => {
   g.strokeStyle = 'rgba(190,110,140,.18)'; g.lineWidth = .6; g.stroke();
   return c;
 });
+let sprites = procSprites, realSprites = null, spriteScale = 1;
+let NATURAL = [0, 1, 2, 3];                 // indices makePetal may pick from
+const pickNatural = () => NATURAL[(Math.random() * NATURAL.length) | 0];
+// The real petals: a sheet cut from generated sakura petals (assets/petals).
+// Indices 0-3 are four flat petals, 4-8 the dyes (recoloured real petals),
+// 9+ every other petal on the sheet: curled, twisted, edge-on.
+(async () => {
+  try {
+    const meta = await (await fetch('/assets/petals/petals.json')).json();
+    const img = new Image(); img.src = '/assets/petals/petals.png'; await img.decode();
+    const frame = i => { const f = meta.frames[i], c = document.createElement('canvas'); c.width = f.w; c.height = f.h; c.getContext('2d').drawImage(img, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h); return c; };
+    const dye = (src, [color, depth]) => {
+      const c = document.createElement('canvas'); c.width = src.width; c.height = src.height; const g = c.getContext('2d');
+      g.drawImage(src, 0, 0);
+      g.globalCompositeOperation = 'color'; g.fillStyle = color; g.fillRect(0, 0, c.width, c.height);       // take the hue
+      g.globalCompositeOperation = 'multiply'; g.globalAlpha = depth; g.fillRect(0, 0, c.width, c.height);   // and some of its depth
+      g.globalAlpha = 1; g.globalCompositeOperation = 'destination-in'; g.drawImage(src, 0, 0);            // clipped to the petal
+      return c;
+    };
+    const n = meta.frames.length, all = Array.from({ length: n }, (_, i) => frame(i));
+    const set = [all[0], all[1], all[2], all[3]];
+    for (let d = 4; d <= 8; d++) set[d] = dye(all[(d - 4) % 4], DYES[d]);
+    for (let i = 4; i < n; i++) set.push(all[i]);
+    realSprites = set;
+    if (settings.realPetals) usePetals(true);
+  } catch (e) { console.warn('real petals unavailable, keeping drawn ones', e); }
+})();
+function usePetals(real) {
+  settings.realPetals = real;
+  if (real && realSprites) { sprites = realSprites; spriteScale = 1.25; NATURAL = [0, 1, 2, 3, ...Array.from({ length: realSprites.length - 9 }, (_, i) => i + 9)]; }
+  else { sprites = procSprites; spriteScale = 1; NATURAL = [0, 1, 2, 3]; }
+  const b = document.getElementById('b-petals'); if (b) b.innerHTML = `<kbd>P</kbd>Petals: ${settings.realPetals ? 'real' : 'drawn'}`;
+}
 
 // ── Settings
 const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const settings = {
   calm: prefersReduced,
+  realPetals: !/petals=drawn/.test(location.search),
   get count()    { return this.calm ? 170 : 480; },
   get duration() { return this.calm ? 0.9 : 1.45; },
   get swirl()    { return this.calm ? 0.3 : 1.0; },
@@ -268,7 +304,7 @@ function perimeterPoint(f, u) {
 const petals = [], ripples = [];
 function makePetal(x, y) {
   return {
-    x, y, px: x, py: y, mode: 'ambient', sprite: (Math.random() * 4) | 0,   // sakura tints only; dyes are for forms
+    x, y, px: x, py: y, mode: 'ambient', sprite: pickNatural(),   // never a dye; those are for forms
     size: rand(0.55, 1.05), rot: rand(0, Math.PI * 2), spin: rand(-1.6, 1.6),
     flip: rand(0, Math.PI * 2), alpha: 1, born: now, tab: null,
     phase: rand(0, Math.PI * 2), freq: rand(3.2, 5.6), amp: rand(22, 58), fall: rand(34, 62), vx: 0, vy: 0,
@@ -812,6 +848,7 @@ function showForm(kind, opts) {
   spec.forEach(sp => {
     const s = canopyPoint(), p = makePetal(s.x, s.y);
     const keep = p.sprite; Object.assign(p, sp); if (p.sprite === undefined || p.sprite === null) p.sprite = keep;   // builders may leave the tint alone
+    if (p.sprite < 4 && sprites === realSprites) p.sprite = pickNatural();   // 'pink' on the real sheet means any natural petal
     if (sp.planet) p.world = planetWorld;
     p.form = form; p.follow = followForm; p.delay = rand(0, 0.9); p.alphaT = 1;
     startFlight(p, s, followForm(p), settings.duration * rand(0.8, 1.3)); p.wobA *= 0.7;
@@ -1042,7 +1079,7 @@ window.MahoragaTabs = {
   config,
   get state() {
     const planets = form.kind === 'solar' ? form.planets.map(pl => { const c = planetCenter(pl), q = project(c[0], c[1], c[2]); return { name: pl.name, x: q.x, y: q.y }; }) : [];
-    return { ...deckInfo(), view: { ...view }, scrub: scrub.s, thinking,
+    return { ...deckInfo(), view: { ...view }, scrub: scrub.s, thinking, petals: sprites === realSprites ? 'real' : 'drawn',
       form: form.kind ? { kind: form.kind, faces: form.faces, picked: form.picked ? form.picked.name : null, zoom: cam.zoom, settled: form.settled, total: form.total, planets } : null };
   },
 };
@@ -1160,7 +1197,8 @@ function drawPetal(p) {
   if (p.alpha <= 0.01) return;
   if (p.mode === 'gather' && now - p.born < p.delay) return;
   if (p.mode === 'fall' && now < p.fallAt) return;
-  const s = sprites[p.sprite] || sprites[0], sc = p.size * SPRITE * (p.ds || 1), fx = 0.3 + 0.7 * Math.abs(Math.cos(p.flip));
+  const s = sprites[p.sprite] || sprites[p.sprite % 4] || sprites[0], sc = p.size * SPRITE * spriteScale * (p.ds || 1);
+  const fx = (sprites === realSprites ? 0.45 : 0.3) + (sprites === realSprites ? 0.55 : 0.7) * Math.abs(Math.cos(p.flip));
   ctx.save(); ctx.globalAlpha = p.alpha * (p.da === undefined ? 1 : p.da); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.scale(fx, 1);
   ctx.drawImage(s, -sc / 2, -sc / 2, sc, sc); ctx.restore();
 }
@@ -1198,6 +1236,7 @@ document.querySelectorAll('.hud button').forEach(b => b.onclick = () => {
   const c = b.dataset.cmd;
   if (c === 'click') doClick();
   else if (c === 'calm') { settings.calm = !settings.calm; setPressed('b-calm', settings.calm); }
+  else if (c === 'petals') usePetals(!settings.realPetals);
   else if (c === 'form.text') MahoragaTabs.send('form', { kind: 'text', text: document.getElementById('text-in').value });
   else if (c.startsWith('form.') && FORMS[c.slice(5)]) MahoragaTabs.send('form', { kind: c.slice(5) });
   else MahoragaTabs.send(c);
@@ -1216,6 +1255,7 @@ window.addEventListener('keydown', e => {
   else if (e.key === 'c' || e.key === 'C') doClick();
   else if (e.key === 't' || e.key === 'T') MahoragaTabs.send('think');
   else if (e.key === 'm' || e.key === 'M') document.getElementById('b-calm').click();
+  else if (e.key === 'p' || e.key === 'P') usePetals(!settings.realPetals);
   else if (e.key === 'd' || e.key === 'D') MahoragaTabs.send('duplicate');
   else if (e.key === '1') MahoragaTabs.send('form', { kind: 'cube' });
   else if (e.key === '2') MahoragaTabs.send('form', { kind: 'brain' });

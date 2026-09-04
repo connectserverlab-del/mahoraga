@@ -104,7 +104,9 @@ arrows riffle, B back, D duplicate, Esc close, C click, T thinking, M calm,
 + and - scale, 1/2/3 form the cube, brain, solar system, F cycles cube faces,
 U unpicks, 0 dismisses the form. A click without a drag while a form is up
 is a `pick`.
-The panel at top left logs the last outcomes as they fire.
+The panel at top left logs the last outcomes as they fire. `P` (or the
+Petals button) switches between the real petal sprites in `assets/petals`
+and the drawn fallback; `?petals=drawn` in the URL starts on the fallback.
 
 A minimal gesture adapter looks like this:
 
