@@ -68,6 +68,18 @@
   .page .row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,.06); font-size: 12px; }
   .page .row .who { width: 120px; font-weight: 600; }
   .page .row .sub { flex: 1; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* The real feed: the latest frame of the agent's page, top-aligned and cropped like a browser window. */
+  .page.live { padding: 0; background: #f4eef3; }
+  .page.live img.shot { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top center; opacity: 0; transition: opacity .35s ease; }
+  .page.live img.shot.on { opacity: 1; }
+  .page.live .wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; color: #8a7a96; font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+    background: linear-gradient(110deg, #f4eef3 30%, #faf5f8 50%, #f4eef3 70%); background-size: 200% 100%; animation: shimmer 2.2s linear infinite; }
+  .page.live .wait .task { font-size: 13px; letter-spacing: 0; text-transform: none; color: #5a4a66; max-width: 70%; text-align: center; }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  .viewer.done .page::after, .viewer.failed .page::after { content: ""; position: absolute; inset: 0; pointer-events: none; transition: background .8s ease; }
+  .viewer.done .page::after { background: rgba(40, 28, 48, .28); }
+  .viewer.failed .page::after { background: rgba(90, 20, 40, .32); }
+  .viewer.done .step { color: #bfe3b4; } .viewer.failed .step { color: #f0a4b0; }
 
   /* ── HUD ────────────────────────────────────────────────────────────────── */
   .hud { position: fixed; left: 50%; bottom: 62px; transform: translateX(-50%); z-index: 300; display: flex; flex-direction: column; gap: 6px; max-width: 96vw;
@@ -122,6 +134,9 @@
     <button data-cmd="back"><kbd>B</kbd>Send back</button><button data-cmd="duplicate"><kbd>D</kbd>Duplicate</button><button data-cmd="close"><kbd>Esc</kbd>Close</button>
     <button data-cmd="click"><kbd>C</kbd>Click</button><button data-cmd="think" id="b-think" aria-pressed="false"><kbd>T</kbd>Thinking</button><button data-cmd="calm" id="b-calm" aria-pressed="false"><kbd>M</kbd>Calm</button><button data-cmd="petals" id="b-petals"><kbd>P</kbd>Petals: real</button>
   </div>
+  <div class="grp" id="grp-live"><span class="gl">live</span>
+    <button data-cmd="live" id="b-live" aria-pressed="false"><kbd>L</kbd>Live feed</button><input id="task-in" type="text" placeholder="run a task…" style="width:220px" /><button data-cmd="run">Run</button><button data-cmd="live.demo"><kbd>G</kbd>Demo run</button>
+  </div>
   <div class="grp" id="grp-3D"><span class="gl">3D</span></div>
   <div class="grp" id="grp-compound"><span class="gl">compound</span></div>
   <div class="grp" id="grp-2D"><span class="gl">2D</span><input id="text-in" type="text" placeholder="text…" value="Mahoraga" /><button data-cmd="form.text">Form text</button></div>
@@ -157,6 +172,9 @@
 //     MahoragaTabs.send('pick', {x, y})      solar: pick the planet under a point (zooms to it)
 //     MahoragaTabs.send('unpick')            back out to the whole system
 //     While a form is up: grab rotates it, scale/stretch expand it in and out.
+//     MahoragaTabs.send('run', {task})       run a task on the service; its frame arrives via the live feed
+//     MahoragaTabs.send('live.connect', {url}) follow a service's /v1/live stream ('' = this origin)
+//     MahoragaTabs.send('live.demo')         a scripted run, for testing without a service
 //
 //   Continuous — for gestures with a clutch (pinch) that track the hand:
 //     'hand'        {id, x, y, pinch}   where a hand is; draws a petal cursor
@@ -379,14 +397,17 @@ function pageHtml(site) {
       <div class="line" style="width:88%"></div><div class="line" style="width:40%"></div></div>
     <div style="margin-top:16px"><span class="btn target">Copy token</span></div>`;
 }
+function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 function createTab(siteOverride) {
   const site = siteOverride || SITES[nextSite % SITES.length]; nextSite++;
   const el = document.createElement('div'); el.className = 'viewer'; el.style.setProperty('--accent', site.accent);
   el.innerHTML = `
-    <div class="chrome"><div class="tab"><span class="fav"></span> ${site.name}</div><div class="url">${site.url}</div><div class="step">${site.step}</div></div>
-    <div class="page">${pageHtml(site)}</div>`;
+    <div class="chrome"><div class="tab"><span class="fav"></span> <span class="name">${esc(site.name)}</span></div><div class="url">${esc(site.url)}</div><div class="step">${esc(site.step)}</div></div>
+    ${site.live
+      ? `<div class="page live"><img class="shot" alt=""><div class="wait"><div>waiting for the first frame</div><div class="task">${esc(site.live.task || '')}</div></div></div>`
+      : `<div class="page">${pageHtml(site)}</div>`}`;
   viewersEl.appendChild(el);
-  const tab = { el, site, state: 'summoning', settledTotal: 0, settled: 0, id: 'tab-' + (nextSite) };
+  const tab = { el, site, state: 'summoning', settledTotal: 0, settled: 0, id: 'tab-' + (nextSite), done: null, shot: null };
   el.addEventListener('click', e => { if (tab === active() && tab.state === 'held') clickTell(e.clientX, e.clientY); });
   return tab;
 }
@@ -422,7 +443,7 @@ function layoutDeck(immediate) {
     t.el.style.width = base.w + 'px'; t.el.style.height = base.h + 'px';
     t.el.classList.toggle('direct', !!immediate);
     t.el.style.transform = `translate(${p.x}px, ${p.y}px) scale(${p.s})`;
-    t.el.style.zIndex = p.z; t.el.style.filter = `brightness(${p.bright})`;
+    t.el.style.zIndex = p.z; t.el.style.filter = `brightness(${p.bright * (t.done === 'done' ? 0.82 : t.done === 'failed' ? 0.72 : 1)})${t.done ? ' saturate(.75)' : ''}`;
     if (t.state !== 'summoning' && t.state !== 'sinking') t.el.style.opacity = i > DEPTH_SHOWN ? 0 : p.opacity;
     t.el.classList.toggle('active', i === 0);
     t.el.classList.toggle('aside', !!form.kind);
@@ -436,10 +457,10 @@ function anchor(p) { const f = frontRect(), q = perimeterPoint(f, p.u); return {
 // A tab still forming when the next command lands is finished on the spot, so
 // no intent is ever dropped.
 function settleNow(tab) { if (tab && tab.state === 'summoning') { tab.state = 'held'; tab.el.style.opacity = 1; } }
-function summon() {
+function summon(site) {
   const cur = active();
   if (cur) { settleNow(cur); releaseBorder(cur); }
-  const tab = createTab(); tabs.unshift(tab); layoutDeck();
+  const tab = createTab(site); tabs.unshift(tab); layoutDeck();
   const f = frontRect(), n = settings.count, edgeShare = 0.55;
   blow(W / 2, H * 0.24, f.x + f.w / 2, f.y + f.h / 2, 150);
   for (let i = 0; i < n; i++) {
@@ -450,7 +471,8 @@ function summon() {
     startFlight(p, s, t, settings.duration * rand(0.8, 1.25));
     p.edge = onEdge; p.tab = tab; p.keep = onEdge && Math.random() < 0.72; petals.push(p);
   }
-  emit('tab.summoned', { tab: tab.id, site: tab.site.name }); emit('deck.changed', deckInfo());
+  emit('tab.summoned', { tab: tab.id, site: tab.site.name, session: site && site.live ? site.live.session : undefined }); emit('deck.changed', deckInfo());
+  return tab;
 }
 // A lighter outline for a card that has just come to the front.
 function outline(tab, share) {
@@ -1168,7 +1190,6 @@ function grabMove(id, x, y) {
 }
 // Letting go decides by velocity: a sideways throw riffles, a throw down at
 // the pool closes, anything else is a drop. Thresholds are in px/s.
-const config = { throwSpeed: 900, flickSpeed: 900, scrubCardsPerSecond: 2500 };   // px/s; tune from the gesture side
 function grabEnd(id, x, y, vx, vy) {
   const h = hands.get(id); if (!h || !h.grab) return;
   if (h.grab.form) {
@@ -1208,6 +1229,226 @@ function stretchStart(id, distance) { const h = hands.get(id) || (handSeen(id, W
 function stretchMove(id, distance) { const h = hands.get(id); if (!h || !h.stretch) return; if (form.kind) { cam.zoomT = clamp(h.stretch.z0 * (distance / h.stretch.d0), 0.35, 4); return; } scaleTo(h.stretch.s0 * (distance / h.stretch.d0)); }
 function stretchEnd(id) { const h = hands.get(id); if (h) h.stretch = null; }
 
+// ── Live: the deck mirrors what the agent is doing ─────────────────────────
+// The service streams its sessions over Server-Sent Events (`GET /v1/live`).
+// A task starting summons a frame; each screenshot becomes the frame's page;
+// a navigation runs a wave around the border; clicks and typing send petals
+// to the element the agent touched; a finished task settles and dims.
+const LIVE_KINDS = ['task.started', 'step', 'navigate', 'title', 'screenshot', 'tab.opened', 'tab.closed', 'task.finished', 'task.failed'];
+const live = { es: null, base: '', on: false, status: 'off', tries: 0, timer: null, sessions: new Map() };
+function liveConnect(base) {
+  liveDisconnect(true);
+  live.base = (base || '').replace(/\/$/, ''); live.on = true; live.status = 'connecting';
+  let es; try { es = new EventSource(live.base + '/v1/live'); } catch (e) { live.on = false; live.status = 'off'; emit('live.failed', { error: String(e) }); return; }
+  live.es = es;
+  es.onopen = () => { live.tries = 0; live.status = 'on'; setPressed('b-live', true); emit('live.connected', { url: live.base + '/v1/live' }); };
+  es.addEventListener('snapshot', e => liveSnapshot(JSON.parse(e.data)));
+  for (const k of LIVE_KINDS) es.addEventListener(k, e => liveEvent(JSON.parse(e.data)));
+  es.onerror = () => {
+    if (es.readyState !== EventSource.CLOSED) { live.status = 'reconnecting'; return; }   // EventSource retries on its own
+    // The server answered but not with a stream (a static host, or the route is gone): back off and try again.
+    es.close(); live.es = null; live.status = 'off'; setPressed('b-live', false);
+    const wait = Math.min(30, 2 * 2 ** live.tries++);
+    emit('live.disconnected', { retryIn: wait });
+    if (live.on) live.timer = setTimeout(() => { if (live.on) liveConnect(live.base); }, wait * 1000);
+  };
+}
+function liveDisconnect(quiet) {
+  clearTimeout(live.timer); live.timer = null;
+  if (live.es) { live.es.close(); live.es = null; }
+  const was = live.on; live.on = false; live.status = 'off'; setPressed('b-live', false);
+  if (was && !quiet) emit('live.disconnected', {});
+}
+function liveSession(id) {
+  let s = live.sessions.get(id);
+  if (!s) { s = { id, tabs: new Map(), main: null, current: null, status: 'running', task: '' }; live.sessions.set(id, s); }
+  return s;
+}
+const sessionTabs = s => tabs.filter(t => t.session === s);
+// Summon a frame for a session (or one of its tabs) and remember which is which.
+function liveSummon(s, info) {
+  const site = { name: info.title || info.host || (info.url ? hostOf(info.url) : '') || 'mahoraga', url: info.url || '', accent: '#e8a3bb',
+    step: s.task ? 'Summoned · ' + s.task : 'Summoned', live: { session: s.id, target: info.target || null, task: s.task } };
+  const tab = summon(site); tab.session = s;
+  if (info.target) s.tabs.set(info.target, tab);
+  if (!s.main) s.main = tab;
+  s.current = tab; return tab;
+}
+function hostOf(url) { try { return new URL(url).hostname || url; } catch (e) { return url; } }
+// Which of a session's frames an event is about: by target, then by url, else the current one.
+function liveTabFor(s, ev) {
+  if (ev.target && s.tabs.get(ev.target)) return s.tabs.get(ev.target);
+  if (ev.url && ev.url !== 'about:blank') for (const t of sessionTabs(s)) if (t.site.url === ev.url) return t;
+  return (s.current && tabs.includes(s.current)) ? s.current : (tabs.includes(s.main) ? s.main : null);
+}
+function setChrome(tab, ev) {
+  if (ev.url && ev.url !== 'about:blank') { tab.site.url = ev.url; tab.el.querySelector('.url').textContent = ev.url; }
+  const host = ev.host || (ev.url && ev.url !== 'about:blank' ? hostOf(ev.url) : ''), name = (ev.title || '').trim() || host;
+  if (name) { tab.site.name = host || name; tab.el.querySelector('.name').textContent = name.length > 34 ? name.slice(0, 33) + '…' : name; }
+}
+function setStep(tab, text) { tab.site.step = text; tab.el.querySelector('.step').textContent = text.length > 60 ? text.slice(0, 59) + '…' : text; }
+function liveShot(tab, src) {
+  const img = tab.el.querySelector('img.shot'); if (!img) return;
+  const next = new Image();
+  next.onload = () => { img.src = next.src; img.classList.add('on'); tab.shot = { w: next.naturalWidth, h: next.naturalHeight }; const w = tab.el.querySelector('.wait'); if (w) w.remove(); };
+  next.src = src;
+}
+// The frame's page area on screen, and where a viewport fraction lands on the cropped screenshot.
+function pageArea(tab) { const f = frontRect(), c = 44 * view.scale; return { x: f.x, y: f.y + c, w: f.w, h: f.h - c }; }
+function atToScreen(tab, at) {
+  const a = pageArea(tab), cx = at.x + (at.w || 0) / 2, cy = at.y + (at.h || 0) / 2;
+  if (!tab.shot) return { x: a.x + cx * a.w, y: a.y + cy * a.h, w: (at.w || 0) * a.w };
+  const sc = Math.max(a.w / tab.shot.w, a.h / tab.shot.h), dw = tab.shot.w * sc, dh = tab.shot.h * sc;
+  return { x: clamp(a.x + a.w / 2 + (cx - 0.5) * dw, a.x + 8, a.x + a.w - 8), y: clamp(a.y + cy * dh, a.y + 8, a.y + a.h - 8), w: (at.w || 0) * dw };
+}
+// Typing: a few petals settle across the field, then fade.
+function typeTell(x, y, w) {
+  const tab = active(); if (!tab) return; const f = frontRect(), n = settings.calm ? 4 : 7, span = Math.max(40, Math.min(w || 120, 260));
+  for (let i = 0; i < n; i++) {
+    const s = { x: x + rand(-60, 60), y: f.y - rand(10, 40) }, t = { x: x - span / 2 + span * (i + 0.5) / n + rand(-6, 6), y: y + rand(-4, 4) }, p = makePetal(s.x, s.y);
+    startFlight(p, s, t, rand(0.6, 0.9)); p.delay = i * 0.09; p.wobA *= 0.5; p.edge = false; p.keep = false; p.fadeOnSettle = true; p.smallRipple = i === 0; p.tab = tab; petals.push(p);
+  }
+}
+// A navigation: a wave around the border and a breeze of petals across the page.
+function navTell(tab) {
+  for (const p of petals) if (p.tab === tab && p.mode === 'border') p.wave = now;
+  if (tab !== active()) return;
+  const f = frontRect(), n = settings.calm ? 8 : 18;
+  blow(f.x, f.y + f.h / 2, f.x + f.w, f.y + f.h / 2, 90);
+  for (let i = 0; i < n; i++) {
+    const y = rand(f.y + 50, f.y + f.h - 20), s = { x: f.x - rand(0, 40), y }, t = { x: f.x + f.w + rand(10, 60), y: y + rand(-30, 30) }, p = makePetal(s.x, s.y);
+    startFlight(p, s, t, rand(0.7, 1.1)); p.delay = rand(0, 0.35); p.edge = false; p.keep = false; p.fadeOnSettle = true; p.tab = tab; petals.push(p);
+  }
+}
+function tells(tab, actions) {
+  if (tab !== active() || !actions) return;
+  actions.forEach((act, i) => setTimeout(() => {
+    if (tab !== active() || tab.state !== 'held') return;
+    const f = frontRect();
+    if (act.kind === 'click' && act.at) { const q = atToScreen(tab, act.at); clickTell(q.x, q.y); }
+    else if (act.kind === 'type' && act.at) { const q = atToScreen(tab, act.at); typeTell(q.x, q.y, q.w); }
+    else if (act.kind === 'scroll') blow(f.x + f.w / 2, f.y, f.x + f.w / 2, f.y + f.h, 60);
+  }, 250 + i * 450));
+}
+// A finished task settles its frames: the border calms, the page dims.
+function settleTab(tab, ok, text) {
+  settleNow(tab); tab.done = ok ? 'done' : 'failed'; tab.el.classList.add(tab.done);
+  setStep(tab, (ok ? 'Done' : 'Failed') + (text ? ' · ' + text : ''));
+  const f = frontRect();
+  for (const p of petals) if (p.tab === tab && p.mode === 'border') {
+    p.calmAt = now;
+    if (!ok && Math.random() < 0.35) { startFall(p, rand(0, 0.3)); p.fall *= 1.4; p.die = now + rand(1.5, 2.5); }
+  }
+  if (!ok && tab === active()) blow(f.x + f.w / 2, f.y + f.h / 2, f.x + f.w / 2, f.y - 300, 140);
+  if (thinking && tab === active()) setThinking(false);
+  layoutDeck();
+}
+function removeTab(tab) {
+  if (!tabs.includes(tab)) return;
+  if (tab === active()) return closeActive();
+  tabs.splice(tabs.indexOf(tab), 1); releaseBorder(tab);
+  tab.state = 'sinking'; tab.el.classList.remove('active', 'direct'); tab.el.classList.add('sinking');
+  setTimeout(() => tab.el.remove(), 1100);
+  emit('tab.closed', { tab: tab.id, site: tab.site.name }); layoutDeck(); emit('deck.changed', deckInfo());
+}
+function liveSnapshot(snap) {
+  for (const sess of snap.sessions || []) {
+    if (live.sessions.has(sess.session) || sess.status !== 'running') continue;
+    const s = liveSession(sess.session); s.task = sess.task || '';
+    const first = (sess.tabs || []).find(t => t.url && t.url !== 'about:blank') || (sess.tabs || [])[0];
+    const tab = liveSummon(s, { url: sess.url, title: sess.title, host: sess.host, target: first ? first.target : null });
+    if (sess.step) setStep(tab, `Step ${sess.step}${sess.goal ? ' · ' + sess.goal : ''}`);
+    if (sess.screenshot) liveShot(tab, `${live.base}/v1/live/screenshot/${sess.session}?s=${sess.screenshot}`);
+  }
+}
+function liveEvent(ev) {
+  const s = liveSession(ev.session);
+  if (ev.kind === 'task.started') {
+    s.task = ev.task || ''; const tab = liveSummon(s, { task: s.task });
+    emit('task.started', { session: s.id, task: s.task, tab: tab.id }); return;
+  }
+  if (ev.kind === 'tab.opened') {
+    const blank = !ev.url || ev.url === 'about:blank';
+    if (s.main && tabs.includes(s.main) && !s.main.site.live.target) { s.main.site.live.target = ev.target; s.tabs.set(ev.target, s.main); if (!blank) setChrome(s.main, ev); }
+    else if (!blank) liveSummon(s, ev);
+    return;
+  }
+  if (ev.kind === 'tab.closed') {
+    const tab = s.tabs.get(ev.target); if (!tab) return; s.tabs.delete(ev.target);
+    if (tab === s.main && s.status === 'running') { tab.site.live.target = null; return; }   // the main frame follows the session's next page
+    removeTab(tab); return;
+  }
+  const tab = liveTabFor(s, ev); if (!tab) return;
+  if (ev.kind === 'navigate') { setChrome(tab, ev); s.current = tab; navTell(tab); emit('agent.navigated', { session: s.id, tab: tab.id, url: ev.url, title: ev.title }); }
+  else if (ev.kind === 'title') setChrome(tab, ev);
+  else if (ev.kind === 'step') { setStep(tab, `Step ${ev.n}${ev.goal ? ' · ' + ev.goal : ''}`); tells(tab, ev.actions); emit('agent.step', { session: s.id, tab: tab.id, n: ev.n, goal: ev.goal, actions: ev.actions }); }
+  else if (ev.kind === 'screenshot') { s.current = tab; liveShot(tab, ev.src || `${live.base}/v1/live/screenshot/${s.id}?s=${ev.seq}`); }
+  else if (ev.kind === 'task.finished' || ev.kind === 'task.failed') {
+    const ok = ev.kind === 'task.finished' && ev.success !== false; s.status = ok ? 'done' : 'failed';
+    for (const t of sessionTabs(s)) settleTab(t, ok, ev.result || ev.error);
+    emit('agent.finished', { session: s.id, tab: tab.id, success: ok, result: ev.result || null, error: ev.error || null, steps: ev.steps });
+  }
+}
+// Run a task on the service. The frame appears through the live feed, not this reply.
+async function runTask(d) {
+  const task = d && (d.task || '').trim(); if (!task) return;
+  if (!live.on) liveConnect(live.base);
+  const headers = { 'Content-Type': 'application/json' }; if (config.apiKey) headers['X-API-Key'] = config.apiKey;
+  emit('run.sent', { task });
+  try {
+    const r = await fetch(live.base + '/v1/tasks', { method: 'POST', headers, body: JSON.stringify({ task, provider: d.provider, model: d.model, max_steps: d.max_steps }) });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) { emit('run.rejected', { status: r.status, error: body.detail || r.statusText }); return; }
+    emit('run.finished', { success: body.success, result: body.result, error: body.error });
+  } catch (e) { emit('run.rejected', { error: String(e) }); }
+}
+// A scripted run for testing the feed without a service: the same events,
+// with frames drawn on a canvas.
+function demoFrame(kind) {
+  const c = document.createElement('canvas'); c.width = 1280; c.height = 800; const g = c.getContext('2d');
+  g.fillStyle = '#fbf8fa'; g.fillRect(0, 0, 1280, 800);
+  g.fillStyle = '#4a2f4f'; g.fillRect(0, 0, 1280, 64);
+  g.fillStyle = '#fff'; g.font = '700 22px Inter, sans-serif'; g.fillText('example.shop', 40, 40);
+  g.font = '15px Inter, sans-serif'; g.fillStyle = 'rgba(255,255,255,.75)'; ['Tea', 'Sets', 'Journal', 'Cart (' + (kind === 'cart' ? 1 : 0) + ')'].forEach((t, i) => g.fillText(t, 900 + i * 90, 40));
+  g.fillStyle = '#fff'; g.strokeStyle = '#cdbfd0'; g.lineWidth = 2; g.beginPath(); g.roundRect(320, 14, 500, 36, 8); g.fill(); g.stroke();
+  g.fillStyle = '#9a8aa2'; g.font = '15px Inter, sans-serif'; g.fillText(kind === 'home' ? 'Search' : 'kyusu', 336, 38);
+  const card = (x, y, w, h, title, price, hot) => { g.fillStyle = hot ? '#f5e4ec' : '#fff'; g.strokeStyle = '#e4d8e6'; g.beginPath(); g.roundRect(x, y, w, h, 14); g.fill(); g.stroke();
+    g.fillStyle = '#e9dfe8'; g.beginPath(); g.roundRect(x + 16, y + 16, w - 32, h * 0.55, 10); g.fill();
+    g.fillStyle = '#3d2f44'; g.font = '600 16px Inter, sans-serif'; g.fillText(title, x + 16, y + h * 0.55 + 44); g.fillStyle = '#7a6a84'; g.font = '15px Inter, sans-serif'; g.fillText(price, x + 16, y + h * 0.55 + 70); };
+  if (kind === 'home') { g.fillStyle = '#f2dfe7'; g.beginPath(); g.roundRect(40, 96, 1200, 200, 18); g.fill(); g.fillStyle = '#5a3a55'; g.font = '600 26px Inter, sans-serif'; g.fillText('Spring collection · free shipping over $40', 70, 260);
+    ['Kyusu, cedar $62', 'Yunomi pair $28', 'Chasen whisk $19', 'Matcha bowl $44'].forEach((t, i) => card(40 + i * 305, 330, 280, 400, t.split(' $')[0], '$' + t.split(' $')[1], false)); }
+  else if (kind === 'results') { g.fillStyle = '#3d2f44'; g.font = '600 22px Inter, sans-serif'; g.fillText('3 results for "kyusu"', 40, 120);
+    ['Kyusu, cedar $62', 'Kyusu, clay $54', 'Kyusu, glass $38'].forEach((t, i) => card(40, 150 + i * 200, 1200, 180, t.split(' $')[0], '$' + t.split(' $')[1], i === 0)); }
+  else { g.fillStyle = '#e9dfe8'; g.beginPath(); g.roundRect(40, 100, 560, 560, 18); g.fill();
+    g.fillStyle = '#3d2f44'; g.font = '700 34px Inter, sans-serif'; g.fillText('Kyusu, cedar', 660, 150); g.font = '600 28px Inter, sans-serif'; g.fillText('$62', 660, 200);
+    g.fillStyle = '#7a6a84'; g.font = '16px Inter, sans-serif'; ['Side-handled teapot turned from Yoshino cedar.', 'Holds 300 ml. Ships in 2 days.'].forEach((t, i) => g.fillText(t, 660, 250 + i * 28));
+    g.fillStyle = kind === 'cart' ? '#7fb08a' : '#c98aa8'; g.beginPath(); g.roundRect(660, 330, 220, 54, 12); g.fill(); g.fillStyle = '#fff'; g.font = '600 18px Inter, sans-serif'; g.fillText(kind === 'cart' ? 'Added ✓' : 'Add to cart', 690, 364); }
+  return c.toDataURL('image/jpeg', 0.8);
+}
+function liveDemo() {
+  const id = 'demo_' + Math.random().toString(36).slice(2, 7), t0 = 0;
+  const at = (x, y, w, h) => ({ x: x / 1280, y: y / 800, w: w / 1280, h: h / 800 });
+  const script = [
+    [0, { kind: 'task.started', task: 'Find the price of the cedar kyusu and add it to the cart' }],
+    [700, { kind: 'tab.opened', target: 'T1', url: 'about:blank' }],
+    [1600, { kind: 'navigate', url: 'https://example.shop/', title: 'example.shop · tea and sets' }],
+    [1650, { kind: 'screenshot', src: demoFrame('home') }],
+    [3400, { kind: 'step', n: 1, goal: 'Search for kyusu', actions: [{ kind: 'click', at: at(320, 14, 500, 36) }, { kind: 'type', chars: 5, at: at(320, 14, 500, 36) }] }],
+    [5400, { kind: 'navigate', url: 'https://example.shop/search?q=kyusu', title: 'Search · kyusu' }],
+    [5450, { kind: 'screenshot', src: demoFrame('results') }],
+    [7200, { kind: 'step', n: 2, goal: 'Open the cedar kyusu', actions: [{ kind: 'click', at: at(40, 150, 1200, 180) }] }],
+    [8800, { kind: 'navigate', url: 'https://example.shop/products/kyusu-cedar', title: 'Kyusu, cedar' }],
+    [8850, { kind: 'screenshot', src: demoFrame('product') }],
+    [10400, { kind: 'step', n: 3, goal: 'Add it to the cart', actions: [{ kind: 'scroll' }, { kind: 'click', at: at(660, 330, 220, 54) }] }],
+    [12200, { kind: 'screenshot', src: demoFrame('cart') }],
+    [13400, { kind: 'step', n: 4, goal: 'Report the price', actions: [{ kind: 'done', success: true }] }],
+    [14200, { kind: 'task.finished', success: true, result: 'The cedar kyusu is $62 and is in the cart.', steps: 4 }],
+  ];
+  for (const [at_, ev] of script) setTimeout(() => liveEvent({ session: id, ...ev }), t0 + at_);
+  emit('live.demo', { session: id, events: script.length });
+}
+const config = { throwSpeed: 900, flickSpeed: 900, scrubCardsPerSecond: 2500, apiKey: new URLSearchParams(location.search).get('key') || '' };   // px/s; tune from the gesture side
+
 // ── The event surface ──────────────────────────────────────────────────────
 const listeners = new Map();
 function emit(name, data) {
@@ -1216,7 +1457,7 @@ function emit(name, data) {
 }
 function deckInfo() { return { count: tabs.length, active: active() ? active().id : null, order: tabs.map(t => t.id) }; }
 const commands = {
-  'summon': () => summon(),
+  'summon': d => summon(d && d.site),
   'next': () => rotateDeck(1),
   'prev': () => rotateDeck(-1),
   'back': () => sendBack(),
@@ -1247,6 +1488,11 @@ const commands = {
   'stretch': d => stretchStart(d.id || 'hands', d.distance),
   'stretch.move': d => stretchMove(d.id || 'hands', d.distance),
   'stretch.end': d => stretchEnd(d ? d.id || 'hands' : 'hands'),
+  'live.connect': d => liveConnect(d && d.url !== undefined ? d.url : live.base),
+  'live.disconnect': () => liveDisconnect(),
+  'live.event': d => d && d.kind && liveEvent({ session: d.session || 'external', ...d }),
+  'live.demo': () => liveDemo(),
+  'run': d => runTask(d),
 };
 window.MahoragaTabs = {
   send(name, data) { const c = commands[name]; if (!c) { console.warn('MahoragaTabs: unknown intent', name); return false; } c(data); return true; },
@@ -1256,7 +1502,8 @@ window.MahoragaTabs = {
   config,
   get state() {
     const planets = form.kind === 'solar' ? form.planets.map(pl => { const c = planetCenter(pl), q = project(c[0], c[1], c[2]); return { name: pl.name, x: q.x, y: q.y }; }) : [];
-    return { ...deckInfo(), view: { ...view }, scrub: scrub.s, thinking, petals: sprites === realSprites ? 'real' : 'drawn',
+    const sessions = [...live.sessions.values()].map(s => ({ session: s.id, task: s.task, status: s.status, tabs: sessionTabs(s).map(t => t.id) }));
+    return { ...deckInfo(), view: { ...view }, scrub: scrub.s, thinking, petals: sprites === realSprites ? 'real' : 'drawn', live: { status: live.status, base: live.base, sessions },
       form: form.kind ? { kind: form.kind, faces: form.faces, picked: form.picked ? form.picked.name : null, zoom: cam.zoom, settled: form.settled, total: form.total, planets, place: form.map ? form.map.place : undefined,
         hand: form.cards ? form.cards.filter(c => c.fan).map(c => { const q = project(c.x, c.y, c.z); return { name: c.name, x: q.x, y: q.y, lift: c.lift }; }) : undefined } : null };
   },
@@ -1297,6 +1544,7 @@ function update(dt) {
       if (s >= 1) {
         if (p.form) { p.mode = 'form'; if (p.form.onSettle) p.form.onSettle(); }
         else if (p.isClick) { ripples.push({ x: p.tx, y: p.ty, born: now }); ripples.push({ x: p.tx, y: p.ty, born: now + 0.18 }); p.mode = 'fade'; }
+        else if (p.fadeOnSettle) { if (p.smallRipple) ripples.push({ x: p.tx, y: p.ty, born: now, small: true }); p.mode = 'fade'; }
         else if (p.edge && p.keep) { p.mode = 'border'; p.hoverPhase = rand(0, Math.PI * 2); }
         else { p.mode = 'fade'; if (!p.edge && p.tab) p.tab.settled++; }
       }
@@ -1304,9 +1552,17 @@ function update(dt) {
     else if (p.mode === 'border') {
       border++;
       const a = p.follow(p), w = wind(a.x, a.y, now), k = now * 1.3 + p.hoverPhase;
-      p.x = a.x + w.x * 0.16 + Math.sin(k) * 1.5; p.y = a.y + w.y * 0.16 + Math.cos(k * 0.8) * 1.5;
-      p.rot = lerpAngle(p.rot, p.baseRot + w.x * 0.012, 1 - Math.pow(0.05, dt)); p.flip += 0.8 * dt;
-      if (!settings.calm && Math.random() < dt * 0.02) { startFall(p, 0); p.rippled = true; }
+      // A finished task calms its border: the hover and the wind coupling ease away.
+      const calm = p.calmAt ? 1 - 0.85 * smoothstep(0, 1.5, now - p.calmAt) : 1;
+      p.x = a.x + (w.x * 0.16 + Math.sin(k) * 1.5) * calm; p.y = a.y + (w.y * 0.16 + Math.cos(k * 0.8) * 1.5) * calm;
+      // A navigation runs a wave around the frame: each petal lifts outward as it passes.
+      if (p.wave) {
+        const tw = now - p.wave - (p.u || 0) * 0.8;
+        if (tw > 0.55) p.wave = 0;
+        else if (tw > 0) { const f = frontRect(), nx = a.x - (f.x + f.w / 2), ny = a.y - (f.y + f.h / 2), nl = Math.hypot(nx, ny) || 1, b = Math.sin(tw / 0.55 * Math.PI) * 16; p.x += nx / nl * b; p.y += ny / nl * b; p.flip += 7 * dt; }
+      }
+      p.rot = lerpAngle(p.rot, p.baseRot + w.x * 0.012, 1 - Math.pow(0.05, dt)); p.flip += 0.8 * dt * calm;
+      if (!settings.calm && !p.calmAt && Math.random() < dt * 0.02) { startFall(p, 0); p.rippled = true; }
     }
     else if (p.mode === 'fall') {
       if (now < p.fallAt) continue;
@@ -1353,7 +1609,7 @@ function update(dt) {
   const a = active();
   statEl.textContent = form.kind
     ? `${petals.length} petals · ${form.kind}${form.kind === 'cube' ? ' · faces ' + form.faces : ''}${form.picked ? ' · ' + form.picked.name : ''} · zoom ×${cam.zoom.toFixed(2)}`
-    : `${petals.length} petals · ${border} on frame · ${tabs.length} tab${tabs.length === 1 ? '' : 's'}${a ? ' · ' + a.site.name : ''} · ×${view.scale.toFixed(2)}`;
+    : `${petals.length} petals · ${border} on frame · ${tabs.length} tab${tabs.length === 1 ? '' : 's'}${a ? ' · ' + a.site.name : ''} · ×${view.scale.toFixed(2)}${live.status !== 'off' ? ' · live ' + live.status : ''}`;
 }
 
 // ── Draw
@@ -1388,6 +1644,9 @@ function frame(ts) {
 resize();
 for (let i = 0; i < settings.ambient; i++) spawnAmbient(true);
 requestAnimationFrame(frame);
+// Follow the service this page came from, unless told not to (`?live=off`) or
+// pointed elsewhere (`?live=https://host:8080`).
+{ const q = new URLSearchParams(location.search).get('live'); if (q !== 'off') setTimeout(() => liveConnect(q && q !== 'on' ? q : ''), 300); }
 
 // ── Event log (last few outcomes, so you can see what to attach to) ────────
 const logLines = [];
@@ -1401,7 +1660,8 @@ log('ready');
 function setPressed(id, on) { document.getElementById(id).setAttribute('aria-pressed', String(on)); }
 function doClick() {
   const tab = active(); if (!tab || tab.state !== 'held') return;
-  const b = tab.el.querySelector('.target').getBoundingClientRect();
+  const target = tab.el.querySelector('.target'), f = frontRect();
+  const b = target ? target.getBoundingClientRect() : { left: f.x + f.w * 0.5, top: f.y + f.h * 0.55, width: 0, height: 0 };
   MahoragaTabs.send('click', { x: b.left + b.width / 2, y: b.top + b.height / 2 });
   const step = tab.el.querySelector('.step'), was = step.textContent; step.textContent = was + ' ✓'; setTimeout(() => step.textContent = was, 900);
 }
@@ -1413,6 +1673,8 @@ for (const [kind, def] of Object.entries(FORMS)) {
 document.querySelectorAll('.hud button').forEach(b => b.onclick = () => {
   const c = b.dataset.cmd;
   if (c === 'click') doClick();
+  else if (c === 'live') { if (live.on) MahoragaTabs.send('live.disconnect'); else MahoragaTabs.send('live.connect'); }
+  else if (c === 'run') { const i = document.getElementById('task-in'); MahoragaTabs.send('run', { task: i.value }); i.value = ''; }
   else if (c === 'calm') { settings.calm = !settings.calm; setPressed('b-calm', settings.calm); }
   else if (c === 'petals') usePetals(!settings.realPetals);
   else if (c === 'form.text') MahoragaTabs.send('form', { kind: 'text', text: document.getElementById('text-in').value });
@@ -1423,7 +1685,7 @@ const devEl = document.getElementById('dev');
 document.getElementById('devtoggle').onclick = () => { devEl.hidden = !devEl.hidden; };
 setPressed('b-calm', settings.calm);
 window.addEventListener('keydown', e => {
-  if (e.target.tagName === 'INPUT') { if (e.key === 'Enter') document.querySelector('[data-cmd="form.text"]').click(); return; }
+  if (e.target.tagName === 'INPUT') { if (e.key === 'Enter') document.querySelector(e.target.id === 'task-in' ? '[data-cmd="run"]' : '[data-cmd="form.text"]').click(); return; }
   if (e.key === '`') { devEl.hidden = !devEl.hidden; return; }
   if (e.key === ' ') { e.preventDefault(); MahoragaTabs.send('summon'); }
   else if (e.key === 'ArrowRight') MahoragaTabs.send('next');
@@ -1443,6 +1705,8 @@ window.addEventListener('keydown', e => {
   else if (e.key === '5') MahoragaTabs.send('form', { kind: 'cards' });
   else if (e.key === 's' || e.key === 'S') { if (form.cards) MahoragaTabs.send('cards.shuffle'); }
   else if (e.key === 'f' || e.key === 'F') MahoragaTabs.send('form.faces');
+  else if (e.key === 'l' || e.key === 'L') document.getElementById('b-live').click();
+  else if (e.key === 'g' || e.key === 'G') MahoragaTabs.send('live.demo');
   else if (e.key === 'u' || e.key === 'U') MahoragaTabs.send('unpick');
   else if (e.key === '+' || e.key === '=') MahoragaTabs.send('scale', { factor: 1.1 });
   else if (e.key === '-' || e.key === '_') MahoragaTabs.send('scale', { factor: 1 / 1.1 });

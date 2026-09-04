@@ -35,6 +35,11 @@ Attach a recognised, completed gesture to one of these.
 | `cards.fan` | `{spread}` | Set how wide the hand fans, 0.15 (a tight stack) to 2.2 (a full arc); 1 is the default |
 | `locate` | `{lat?, lon?, radius?}` | Form a petal map of the streets around you. Without coordinates it asks the browser for your location (a permission prompt; nothing leaves the machine but the map request), falling back to `?lat=&lon=` in the URL, then to a default. Emits `map.located` then `map.built`, or `map.failed` |
 | `form` `{kind: 'map', lat, lon, radius?}` | | The same map at explicit coordinates, no prompt |
+| `run` | `{task, provider?, model?, max_steps?}` | Run a task on the service (`POST /v1/tasks`). The frame for it arrives through the live feed, not this call; the reply becomes `run.finished` or `run.rejected` |
+| `live.connect` | `{url?}` | Follow a service's live feed (`GET /v1/live`); `url` is the service origin, empty for the page's own. Connected by default; `?live=off` in the URL leaves it off, `?live=https://host:8080` points elsewhere |
+| `live.disconnect` | | Stop following |
+| `live.event` | `{kind, session, ...}` | Feed one event in by hand (the same shape the stream carries) |
+| `live.demo` | | A scripted run with drawn frames, for testing without a service |
 
 While a form is up, the continuous gestures change meaning: `grab` rotates
 the form (a throw keeps it spinning; a pinch that does not travel is a
@@ -88,6 +93,33 @@ off(); // unsubscribe
 | `cards.fanned` | `{spread}` (while a scrub fans the hand) |
 | `map.located` / `map.built` / `map.failed` / `form.failed` | `{lat, lon, how}` / `{lat, lon, radius, place, ways, petals}` / `{reason}` / `{kind, error}` |
 
+## The live feed: frames follow the agent
+
+With the service running, the page follows `GET /v1/live` (Server-Sent
+Events) and the deck mirrors every task the service runs, whether it came
+from the console, n8n, the CLI or the dev panel's task field:
+
+| Feed event | What the deck does |
+|---|---|
+| `task.started` | Summons a frame for the session, its page waiting for the first frame |
+| `screenshot` | The frame's page becomes the latest screenshot of the agent's current page (`GET /v1/live/screenshot/{session}`) |
+| `navigate` | The address and title update; a wave runs around the border and a breeze of petals crosses the page |
+| `step` | The chrome shows `Step n · goal`; a click sends a petal to the element the agent clicked, typing settles a few petals across the field, a scroll blows down the page. Element positions come from the agent's own DOM state, as fractions of the viewport |
+| `tab.opened` / `tab.closed` | The session's first tab is its frame; further tabs with a real URL get frames of their own and sink when they close |
+| `task.finished` / `task.failed` | The border calms and the page dims (a failure scatters part of the border first); the step line reads the result or the error |
+
+A page that opens mid-task catches up from the stream's opening snapshot.
+The service's hooks report the agent's steps and take a screenshot every
+two seconds between them; typed text is never forwarded, only its length.
+Integrations can push the same events with `POST /v1/live/events`.
+
+Outcomes for the gesture side: `task.started {session, task, tab}`,
+`agent.navigated {session, tab, url, title}`, `agent.step {session, tab, n,
+goal, actions}`, `agent.finished {session, tab, success, result, error}`,
+`live.connected`, `live.disconnected {retryIn}`, `run.sent`, `run.finished`,
+`run.rejected`. `MahoragaTabs.state.live` lists the feed status and every
+session with its frames.
+
 `MahoragaTabs.state` returns the deck order, active tab, placement, scrub
 offset and thinking flag at any time, plus `form` when one is up: its kind,
 face mode, picked body, zoom, and for the solar system the current screen
@@ -111,7 +143,7 @@ intent and every shape, plus a text field. The page drives the same surface from
 arrows riffle, B back, D duplicate, Esc close, C click, T thinking, M calm,
 + and - scale, 1/2/3 form the cube, brain, solar system, F cycles cube faces,
 U unpicks, 0 dismisses the form, 4 forms the map at your location, 5 deals
-the cards and S shuffles them. A click without a drag while a form is up
+the cards and S shuffles them, L toggles the live feed, G plays the demo run. A click without a drag while a form is up
 is a `pick`.
 The panel at top left logs the last outcomes as they fire. `P` (or the
 Petals button) switches between the real petal sprites in `assets/petals`

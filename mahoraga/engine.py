@@ -166,18 +166,34 @@ async def run_task_async(task: str, settings: Settings | None = None) -> str | N
     settings = (settings or Settings()).resolve()
     from browser_use import Agent
 
+    from mahoraga import live
+
     sensitive, allowed, hint = build_credentials(task)
+    # The console mirrors this run as a petal frame; it sees the task as
+    # typed, never the credential hint.
+    session = live.feed.start(task, settings.provider, settings.model)
     if hint:
         task = f"{task}\n\n{hint}"
 
+    hooks = live.hooks(session.id)
     agent = Agent(
         task=task,
         llm=build_llm(settings),
         browser=build_browser(settings, allowed_domains=allowed),
         use_vision=settings.use_vision,
         sensitive_data=sensitive,
+        **hooks["agent"],
     )
-    history = await agent.run(max_steps=settings.max_steps)
+    watcher = asyncio.create_task(
+        live.watch(session.id, lambda: getattr(agent, "browser_session", None))
+    )
+    try:
+        history = await agent.run(max_steps=settings.max_steps, **hooks["run"])
+    except BaseException as exc:
+        live.feed.fail(session.id, f"{type(exc).__name__}: {exc}")
+        raise
+    finally:
+        watcher.cancel()
 
     # Mark which sites' credentials were used, for the vault's last-used stamp.
     if allowed:
@@ -193,7 +209,9 @@ async def run_task_async(task: str, settings: Settings | None = None) -> str | N
         except Exception:  # noqa: BLE001
             pass
 
-    return history.final_result()
+    result = history.final_result()
+    live.feed.finish(session.id, result, success=result is not None)
+    return result
 
 
 def run_task(task: str, settings: Settings | None = None) -> str | None:

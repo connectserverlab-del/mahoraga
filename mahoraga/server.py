@@ -15,9 +15,10 @@ import os
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from mahoraga import live
 from mahoraga.config import Settings
 from mahoraga.engine import run_task_async
 from mahoraga.wheel import Wheel, WheelStore, Workflow
@@ -79,6 +80,31 @@ class VaultAdd(BaseModel):
     username: str
     password: str
     notes: str = ""
+
+
+class LiveEvent(BaseModel):
+    """An event pushed into the live feed from outside the engine.
+
+    Lets an integration (an n8n step, a test harness, another automation
+    runner) drive the console's petal frames the same way the built-in agent
+    does. ``task.started`` without a ``session`` opens a new session and
+    returns its id; every other kind needs the ``session`` it belongs to.
+    """
+
+    kind: str = Field(..., description="task.started | step | navigate | screenshot | task.finished | task.failed | tab.opened | tab.closed")
+    session: str | None = None
+    task: str | None = None
+    url: str | None = None
+    title: str | None = None
+    goal: str | None = None
+    n: int | None = None
+    actions: list[dict] = Field(default_factory=list)
+    tabs: list[dict] | None = None
+    target: str | None = None
+    result: str | None = None
+    success: bool | None = None
+    error: str | None = None
+    screenshot: str | None = Field(None, description="base64 (optionally a data: URL) PNG or JPEG")
 
 
 async def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
@@ -255,6 +281,67 @@ def create_app() -> FastAPI:
         from mahoraga.vault import Vault
 
         return {"deleted": Vault().delete(domain)}
+
+    # ── Live feed: what the agent is doing, for the console ──────────────────
+
+    @app.get("/v1/live")
+    async def live_stream() -> StreamingResponse:
+        """Server-Sent Events: a snapshot of every session, then each event."""
+        return StreamingResponse(
+            live.feed.stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.get("/v1/live/sessions")
+    async def live_sessions() -> dict:
+        return live.feed.snapshot()
+
+    @app.get("/v1/live/screenshot/{session_id}")
+    async def live_screenshot(session_id: str) -> Response:
+        session = live.feed.get(session_id)
+        if session is None or not session.shot:
+            raise HTTPException(status_code=404, detail="No frame yet")
+        return Response(
+            content=session.shot,
+            media_type=session.shot_type,
+            headers={"Cache-Control": "no-store", "X-Frame-Seq": str(session.shot_seq)},
+        )
+
+    @app.post("/v1/live/events")
+    async def live_event(body: LiveEvent, _: None = Depends(require_api_key)) -> dict:
+        kind = body.kind
+        if kind == "task.started":
+            session = live.feed.start(body.task or "external task", session_id=body.session)
+            if body.url or body.tabs is not None:
+                live.feed.page(session.id, body.url, body.title, body.tabs)
+        else:
+            session = live.feed.get(body.session or "")
+            if session is None:
+                raise HTTPException(status_code=404, detail="Unknown session")
+            if kind == "step":
+                live.feed.page(session.id, body.url, body.title, body.tabs)
+                live.feed.step(session.id, body.n or session.step + 1, body.goal or "", body.actions, body.url, body.title)
+            elif kind in ("navigate", "title"):
+                live.feed.page(session.id, body.url, body.title, body.tabs)
+            elif kind == "tab.opened":
+                tabs = [t for t in session.tabs if t.get("target") != body.target]
+                tabs.append({"target": body.target or "", "url": body.url or "", "title": body.title or ""})
+                live.feed.page(session.id, None, None, tabs)
+            elif kind == "tab.closed":
+                live.feed.page(session.id, None, None, [t for t in session.tabs if t.get("target") != body.target])
+            elif kind == "task.finished":
+                live.feed.finish(session.id, body.result, success=body.success is not False)
+            elif kind == "task.failed":
+                live.feed.fail(session.id, body.error or "failed")
+            elif kind != "screenshot":
+                raise HTTPException(status_code=400, detail=f"Unknown event kind: {kind}")
+        if body.screenshot:
+            data = live._png_from_b64(body.screenshot)
+            if data:
+                mime = "image/png" if data[:4] == b"\x89PNG" else "image/jpeg"
+                live.feed.screenshot(session.id, data, mime)
+        return {"session": session.id, "seq": live.feed.snapshot()["seq"]}
 
     # ── Console UI ────────────────────────────────────────────────────────────
 
