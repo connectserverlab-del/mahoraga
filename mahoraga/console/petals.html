@@ -14,7 +14,7 @@
     --font: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
     --glass: rgba(255,255,255,.62); --glass-line: rgba(255,255,255,.75); --glass-ink: #4a4058;
-    --rose: #e8a3bb; --gold: #e6c98a;
+    --rose: #e8a3bb; --gold: #e6c98a; --moss: #9fc7a8; --sky: #a9c4e6;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; overflow: hidden; background: #e9e0f2; }
@@ -24,54 +24,71 @@
   .domain { position: fixed; inset: 0; z-index: 0; overflow: hidden; }
   .domain video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 
-  /* ── Petal layer: a single 2D canvas above the scene, below nothing ──────── */
+  /* ── Petal layer: one 2D canvas above the scene ─────────────────────────── */
   #petals { position: fixed; inset: 0; z-index: 3; pointer-events: none; }
 
-  /* ── The summoned viewer. Sized here, but it only becomes visible as the
-        petals settle: its opacity is driven from JS by the settle fraction. ── */
-  .viewer { position: fixed; z-index: 2; left: 50%; top: 47%; transform: translate(-50%, -50%);
-    width: min(72vw, 1120px); aspect-ratio: 16 / 10; opacity: 0; pointer-events: none;
-    border-radius: 18px; overflow: hidden;
+  /* ── Viewers. Each tab is one of these. It is laid out at its full size at
+        the origin and moved with a transform, so the same element can be the
+        big active frame or a small lantern on the pool, and the move between
+        the two is a single transition the petals dress. ─────────────────── */
+  .viewer { position: fixed; z-index: 2; left: 0; top: 0; transform-origin: 0 0; opacity: 0;
+    border-radius: 18px; overflow: hidden; pointer-events: none;
     background: rgba(24, 18, 30, .58);
     box-shadow: 0 30px 80px rgba(60, 30, 70, .35), inset 0 0 0 1px rgba(255,255,255,.18);
-    backdrop-filter: blur(6px) saturate(120%); -webkit-backdrop-filter: blur(6px) saturate(120%); }
-  .viewer.live { pointer-events: auto; }
+    backdrop-filter: blur(6px) saturate(120%); -webkit-backdrop-filter: blur(6px) saturate(120%);
+    transition: transform .8s cubic-bezier(.22,.9,.3,1), opacity .45s ease, filter .8s ease; }
+  .viewer.active { pointer-events: auto; }
+  .viewer.docked { pointer-events: auto; cursor: pointer; opacity: .88; filter: saturate(.85) brightness(.95);
+    /* A lantern on the water carries its reflection. Chromium only; fine for a prototype. */
+    -webkit-box-reflect: below 3px linear-gradient(transparent 55%, rgba(255,255,255,.28)); }
+  .viewer.docked:hover { opacity: 1; filter: none; }
+  .viewer.sinking { opacity: 0 !important; transition: transform 1.1s ease-in, opacity .9s ease-in; }
   .viewer .chrome { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px;
     background: rgba(255,255,255,.08); border-bottom: 1px solid rgba(255,255,255,.12); color: #f3e9f2; }
   .viewer .tab { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 550;
-    padding: 6px 12px; border-radius: 9px; background: rgba(255,255,255,.12); }
-  .viewer .tab .fav { width: 10px; height: 10px; border-radius: 50% 0 50% 50%; background: var(--rose); transform: rotate(45deg); }
+    padding: 6px 12px; border-radius: 9px; background: rgba(255,255,255,.12); white-space: nowrap; }
+  .viewer .tab .fav { width: 10px; height: 10px; border-radius: 50% 0 50% 50%; background: var(--accent, var(--rose)); transform: rotate(45deg); }
   .viewer .url { flex: 1; font-family: var(--mono); font-size: 12px; color: rgba(243,233,242,.75);
     background: rgba(0,0,0,.22); border-radius: 9px; padding: 6px 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .viewer .step { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--gold); white-space: nowrap; }
-  /* A fake page so the summon has something to reveal. Replace with the real feed. */
+  /* Docked lanterns read at a glance: big site name, the step, nothing else. */
+  .viewer .lantern { position: absolute; inset: 0; display: none; flex-direction: column; justify-content: flex-end; padding: 8%;
+    color: #f7eef5; background: linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(20,12,26,.55)); }
+  .viewer .lantern .name { font-size: 84px; font-weight: 700; letter-spacing: -.02em; line-height: 1; }
+  .viewer .lantern .st { font-size: 40px; color: var(--gold); margin-top: 14px; letter-spacing: .04em; text-transform: uppercase; }
+  .viewer.docked .lantern { display: flex; }
+  /* Fake pages, so the summon has something to reveal. Replace with the real feed. */
   .page { position: absolute; inset: 44px 0 0 0; padding: 22px 26px; color: #efe6ee; overflow: hidden; }
   .page .hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
   .page .brand { font-weight: 700; letter-spacing: -.01em; font-size: 15px; }
   .page .nav { display: flex; gap: 16px; font-size: 12px; opacity: .7; }
-  .page .hero { height: 26%; border-radius: 12px; margin-bottom: 18px;
-    background: linear-gradient(120deg, rgba(232,163,187,.35), rgba(230,201,138,.25)); display: flex; align-items: flex-end; padding: 16px; font-size: 13px; opacity: .9; }
+  .page .hero { height: 26%; border-radius: 12px; margin-bottom: 18px; display: flex; align-items: flex-end; padding: 16px; font-size: 13px; opacity: .9;
+    background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 38%, transparent), rgba(230,201,138,.22)); }
   .page .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
   .page .card { border-radius: 12px; background: rgba(255,255,255,.08); padding: 12px; font-size: 12px; min-height: 120px;
     display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; border: 1px solid rgba(255,255,255,.08); }
   .page .card .sw { height: 48px; border-radius: 8px; background: rgba(255,255,255,.12); margin-bottom: auto; }
-  .page .card .btn { align-self: flex-start; padding: 5px 9px; border-radius: 7px; background: rgba(232,163,187,.28); border: 1px solid rgba(232,163,187,.5); font-size: 11px; }
-  .page .card .btn.target { background: rgba(230,201,138,.32); border-color: rgba(230,201,138,.7); }
+  .page .btn { align-self: flex-start; padding: 5px 9px; border-radius: 7px; font-size: 11px;
+    background: color-mix(in srgb, var(--accent) 30%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); }
+  .page .btn.target { background: rgba(230,201,138,.32); border-color: rgba(230,201,138,.7); }
+  .page .lines { display: flex; flex-direction: column; gap: 10px; }
+  .page .line { height: 12px; border-radius: 6px; background: rgba(255,255,255,.12); }
+  .page .row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,.06); font-size: 12px; }
+  .page .row .who { width: 120px; font-weight: 600; }
+  .page .row .sub { flex: 1; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* ── HUD: the same glass pills the console already uses ─────────────────── */
-  .hud { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 5;
-    display: flex; gap: 8px; align-items: center; }
-  .hud button, .hud .hint { font: inherit; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6b5f7a;
+  .hud { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 5; display: flex; gap: 8px; align-items: center; }
+  .hud button { font: inherit; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6b5f7a;
     background: var(--glass); border: 1px solid var(--glass-line); border-radius: 20px; padding: 8px 14px;
-    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); cursor: pointer; transition: .15s; }
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); cursor: pointer; transition: .15s; white-space: nowrap; }
   .hud button:hover { background: rgba(255,255,255,.8); color: #3f3550; }
   .hud button[aria-pressed="true"] { background: rgba(232,163,187,.55); border-color: rgba(232,163,187,.8); color: #4a2035; }
-  .hud .hint { cursor: default; opacity: .85; }
   .hud kbd { font: inherit; opacity: .6; margin-right: 4px; }
   .stat { position: fixed; right: 16px; bottom: 26px; z-index: 5; font-family: var(--mono); font-size: 11px; color: #6b5f7a;
     background: var(--glass); border: 1px solid var(--glass-line); border-radius: 12px; padding: 6px 10px;
     backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); opacity: .8; }
-  @media (max-width: 900px) { .hud .hint { display: none; } .viewer { width: 92vw; } }
+  @media (max-width: 900px) { .stat { display: none; } }
 </style>
 </head>
 <body>
@@ -83,29 +100,13 @@
   </video>
 </div>
 
-<div class="viewer" id="viewer" aria-hidden="true">
-  <div class="chrome">
-    <div class="tab"><span class="fav"></span> example.shop</div>
-    <div class="url">https://example.shop/collections/tea-sets?sort=price</div>
-    <div class="step" id="step">Step 3 · add to cart</div>
-  </div>
-  <div class="page">
-    <div class="hdr"><div class="brand">example.shop</div><div class="nav"><span>Tea</span><span>Sets</span><span>Journal</span><span>Cart (0)</span></div></div>
-    <div class="hero">Spring collection · free shipping over $40</div>
-    <div class="grid">
-      <div class="card"><div class="sw"></div>Kyusu, cedar<span>$62</span><span class="btn">Add to cart</span></div>
-      <div class="card"><div class="sw"></div>Yunomi pair<span>$28</span><span class="btn target" id="target-btn">Add to cart</span></div>
-      <div class="card"><div class="sw"></div>Chasen whisk<span>$19</span><span class="btn">Add to cart</span></div>
-      <div class="card"><div class="sw"></div>Matcha bowl<span>$44</span><span class="btn">Add to cart</span></div>
-    </div>
-  </div>
-</div>
-
+<div id="viewers"></div>
 <canvas id="petals"></canvas>
 
 <div class="hud">
-  <button id="b-summon"><kbd>Space</kbd>Summon</button>
-  <button id="b-dismiss"><kbd>Esc</kbd>Dismiss</button>
+  <button id="b-summon"><kbd>Space</kbd>New tab</button>
+  <button id="b-switch"><kbd>Tab</kbd>Switch</button>
+  <button id="b-close"><kbd>Esc</kbd>Close</button>
   <button id="b-click"><kbd>C</kbd>Click</button>
   <button id="b-think" aria-pressed="false"><kbd>T</kbd>Thinking</button>
   <button id="b-calm" aria-pressed="false"><kbd>M</kbd>Calm</button>
@@ -114,67 +115,92 @@
 
 <script>
 // ─────────────────────────────────────────────────────────────────────────────
-// Petal summon prototype.
+// Petal summon prototype, round two: natural motion and multiple tabs.
 //
 // One rule: the tree is the source of everything. A summon sheds petals from
-// the canopy, they trace the viewer's outline first and then fill it in, and
-// the live view fades up underneath as they settle. Dismiss loosens the frame
-// back into petals that fall to the pool. Nothing here touches the console;
-// it is a standalone page for tuning the motion before wiring it to real tabs.
+// the canopy; they trace the viewer's outline first, then fill it in, and the
+// live view fades up underneath as they settle. Dismiss loosens the frame
+// back into petals that fall to the pool.
+//
+// Motion is built on three things petals actually do:
+//   1. They share the air. A smooth wind field moves neighbours together, and
+//      every summon is a gust through it that ambient petals feel too.
+//   2. They get plucked fast and land slow: quick departure, long float,
+//      side-to-side flutter, and a small overshoot before they settle.
+//   3. They tilt into their swing, and tumble faster the faster they move.
+//
+// Tabs: the active tab is the big frame. Others float as small lanterns on
+// the pool with their reflection. Switching is a gust that swaps them;
+// closing sinks the tab into the water.
 // ─────────────────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('petals');
 const ctx = canvas.getContext('2d', { alpha: true });
-const viewerEl = document.getElementById('viewer');
+const viewersEl = document.getElementById('viewers');
 const statEl = document.getElementById('stat');
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
-let W = 0, H = 0;
+let W = 0, H = 0, now = 0;
 
 function resize() {
   W = window.innerWidth; H = window.innerHeight;
   canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
   canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  layoutTabs(true);
 }
-window.addEventListener('resize', resize); resize();
+window.addEventListener('resize', resize);
 
-// ── Petal sprites: a few pre-rendered tints so drawing is a single drawImage.
-const TINTS = [
-  ['#fbe4ec', '#f2b7cb'], ['#f9d5e0', '#eea6bf'], ['#fdeff4', '#f4c3d3'], ['#f6c6d6', '#e79ab6'],
-];
-const SPRITE = 28; // px, drawn at 2x for crispness
+// ── Helpers
+const rand = (a, b) => a + Math.random() * (b - a);
+const pick = a => a[(Math.random() * a.length) | 0];
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const easeOutQuart = t => 1 - Math.pow(1 - t, 4);
+// Plucked fast, lands slow: a short ramp so nothing teleports, then a long ease-out float.
+const flightEase = t => smoothstep(0, 0.14, t) * (1 - Math.pow(1 - t, 2.6));
+// Shortest-path angle lerp, so a petal turning into the wind never spins the long way round.
+function lerpAngle(a, b, t) { let d = (b - a + Math.PI * 3) % (Math.PI * 2) - Math.PI; return a + d * t; }
+
+// ── Petal sprites: four tints pre-rendered so each petal is one drawImage.
+const TINTS = [['#fbe4ec', '#f2b7cb'], ['#f9d5e0', '#eea6bf'], ['#fdeff4', '#f4c3d3'], ['#f6c6d6', '#e79ab6']];
+const SPRITE = 28;
 const sprites = TINTS.map(([light, deep]) => {
   const c = document.createElement('canvas'); c.width = c.height = SPRITE * 2;
   const g = c.getContext('2d'); g.scale(2, 2); g.translate(SPRITE / 2, SPRITE / 2);
   const grad = g.createRadialGradient(0, 2, 1, 0, 0, SPRITE / 2);
   grad.addColorStop(0, deep); grad.addColorStop(0.55, light); grad.addColorStop(1, light);
-  g.fillStyle = grad;
-  // Cherry petal: a rounded teardrop with a notch at the top.
-  g.beginPath();
-  g.moveTo(0, 11);                                  // stem point
-  g.bezierCurveTo(-11, 6, -12, -6, -5, -10);        // left lobe
-  g.quadraticCurveTo(-1, -8, 0, -5);                // notch
-  g.quadraticCurveTo(1, -8, 5, -10);
-  g.bezierCurveTo(12, -6, 11, 6, 0, 11);            // right lobe
-  g.closePath(); g.fill();
+  g.fillStyle = grad; g.beginPath();
+  g.moveTo(0, 11); g.bezierCurveTo(-11, 6, -12, -6, -5, -10); g.quadraticCurveTo(-1, -8, 0, -5);
+  g.quadraticCurveTo(1, -8, 5, -10); g.bezierCurveTo(12, -6, 11, 6, 0, 11); g.closePath(); g.fill();
   g.strokeStyle = 'rgba(190,110,140,.18)'; g.lineWidth = .6; g.stroke();
   return c;
 });
 
-// ── Settings. Calm mode is the reduced-motion profile.
+// ── Settings. Calm is the reduced-motion profile.
 const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const settings = {
   calm: prefersReduced,
-  get count()    { return this.calm ? 180 : 520; },   // petals per summon
-  get duration() { return this.calm ? 0.75 : 1.15; }, // seconds, per petal flight
-  get swirl()    { return this.calm ? 0.25 : 1.0; },  // spiral amplitude multiplier
-  get ambient()  { return this.calm ? 8 : 22; },      // petals always drifting
+  get count()    { return this.calm ? 170 : 480; },
+  get duration() { return this.calm ? 0.9 : 1.45; },
+  get swirl()    { return this.calm ? 0.3 : 1.0; },
+  get ambient()  { return this.calm ? 8 : 20; },
+  get windScale(){ return this.calm ? 0.4 : 1.0; },
 };
 
-// ── Helpers
-const rand = (a, b) => a + Math.random() * (b - a);
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const easeOutQuart = t => 1 - Math.pow(1 - t, 4);
-const easeInOutCubic = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+// ── Wind. A smooth vector field in space and time, so petals near each other
+//    move together, plus a gust vector that summons and switches kick into it.
+const gust = { x: 0, y: 0 };
+function wind(x, y, t) {
+  const kx = x * 0.0042, ky = y * 0.0042;
+  const wx = Math.sin(kx * 1.3 + t * 0.9) * 0.6 + Math.sin(ky * 2.1 - t * 0.7 + 1.7) * 0.4 + Math.sin((kx + ky) * 0.7 + t * 0.35) * 0.5;
+  const wy = Math.cos(kx * 1.7 - t * 0.6 + 0.4) * 0.35 + Math.sin(ky * 1.1 + t * 0.8 + 2.3) * 0.3;
+  const s = 24 * settings.windScale;
+  return { x: wx * s + gust.x, y: wy * s + gust.y };
+}
+function blow(fromX, fromY, toX, toY, strength) {
+  const dx = toX - fromX, dy = toY - fromY, len = Math.hypot(dx, dy) || 1;
+  gust.x += dx / len * strength; gust.y += dy / len * strength;
+}
 
 // The canopy: where petals come from. Roughly the tree's crown in the clip.
 function canopyPoint() {
@@ -183,12 +209,7 @@ function canopyPoint() {
 }
 const waterline = () => H * 0.8;
 
-// Viewer rectangle from the DOM, so layout stays in CSS.
-function frameRect() {
-  const r = viewerEl.getBoundingClientRect();
-  return { x: r.left, y: r.top, w: r.width, h: r.height, r: 18 };
-}
-// A point on the frame's outline, evenly distributed by perimeter.
+// A point on a rectangle's outline, evenly distributed by perimeter.
 function perimeterPoint(f, u) {
   const per = 2 * (f.w + f.h); let d = u * per;
   if (d < f.w) return { x: f.x + d, y: f.y };
@@ -197,180 +218,333 @@ function perimeterPoint(f, u) {
   d -= f.w; return { x: f.x, y: f.y + f.h - d };
 }
 
-// ── Petals
-// mode: 'ambient' | 'gather' | 'border' | 'fall' | 'orbit' | 'fade'
+// ── Petals. mode: ambient | gather | settle | border | fall | orbit | fade
 const petals = [];
-let now = 0;
+const ripples = [];
 
 function makePetal(x, y) {
   return {
-    x, y, mode: 'ambient', sprite: (Math.random() * sprites.length) | 0,
-    size: rand(0.55, 1.05), rot: rand(0, Math.PI * 2), rotV: rand(-1.2, 1.2),
-    flip: rand(0, Math.PI * 2), flipV: rand(1.5, 3.5), alpha: 1, born: now,
-    vx: rand(-8, 8), vy: rand(6, 18), sway: rand(0, Math.PI * 2),
+    x, y, px: x, py: y, mode: 'ambient', sprite: (Math.random() * sprites.length) | 0,
+    size: rand(0.55, 1.05), rot: rand(0, Math.PI * 2), spin: rand(-1.6, 1.6),
+    flip: rand(0, Math.PI * 2), alpha: 1, born: now, tab: null,
+    // flutter: the side-to-side swing every falling petal has
+    phase: rand(0, Math.PI * 2), freq: rand(3.2, 5.6), amp: rand(22, 58), fall: rand(34, 62),
+    vx: 0, vy: 0,
   };
 }
-function spawnAmbient() {
-  const p = makePetal(rand(0, W), rand(-40, H * 0.5)); p.alpha = rand(.5, .9); petals.push(p);
+function spawnAmbient(fresh) {
+  const p = makePetal(rand(0, W), fresh ? rand(-40, H * 0.5) : rand(-60, -20));
+  p.alpha = rand(.5, .9); petals.push(p);
 }
-for (let i = 0; i < settings.ambient; i++) spawnAmbient();
 
-// ── Summon state
-let phase = 'idle';           // idle | summoning | held | dismissing
-let summonStart = 0, interiorTotal = 0, interiorSettled = 0;
-let thinking = false;
+// Falling-leaf motion, shared by ambient petals and dismissed ones: a lateral
+// swing, a fall speed that eases at the ends of the swing, the wind, and a
+// tilt into the swing so the petal leans the way it is going.
+function flutterStep(p, dt, gravityRamp) {
+  p.phase += p.freq * dt;
+  const swing = Math.sin(p.phase);
+  const w = wind(p.x, p.y, now);
+  const vy = p.fall * (0.55 + 0.45 * Math.abs(Math.cos(p.phase))) * gravityRamp;
+  p.x += (swing * p.amp + w.x + p.vx) * dt;
+  p.y += (vy + w.y * 0.5 + p.vy) * dt;
+  p.vx *= Math.pow(0.15, dt); p.vy *= Math.pow(0.15, dt);
+  p.rot = lerpAngle(p.rot, p.baseRot + swing * 0.7, 1 - Math.pow(0.02, dt));
+  p.flip += (1.6 + Math.abs(swing) * 2.2) * dt;
+}
 
+// ── Tabs
+const SITES = [
+  { name: 'example.shop', url: 'https://example.shop/collections/tea-sets?sort=price', accent: '#e8a3bb', kind: 'shop', step: 'Step 3 · add to cart' },
+  { name: 'docs.example', url: 'https://docs.example/api/reference#authentication', accent: '#a9c4e6', kind: 'docs', step: 'Step 1 · read auth section' },
+  { name: 'mail.example', url: 'https://mail.example/inbox?label=invoices', accent: '#9fc7a8', kind: 'mail', step: 'Step 2 · open latest invoice' },
+  { name: 'maps.example', url: 'https://maps.example/search/tea+house+near+me', accent: '#e6c98a', kind: 'docs', step: 'Step 4 · copy address' },
+];
+const tabs = [];          // in creation order
+let active = null, nextSite = 0;
+const base = { w: 0, h: 0 };
+const DOCK_SCALE = 0.2;
+
+function pageHtml(site) {
+  if (site.kind === 'shop') return `
+    <div class="hdr"><div class="brand">${site.name}</div><div class="nav"><span>Tea</span><span>Sets</span><span>Journal</span><span>Cart (0)</span></div></div>
+    <div class="hero">Spring collection · free shipping over $40</div>
+    <div class="grid">
+      <div class="card"><div class="sw"></div>Kyusu, cedar<span>$62</span><span class="btn">Add to cart</span></div>
+      <div class="card"><div class="sw"></div>Yunomi pair<span>$28</span><span class="btn target">Add to cart</span></div>
+      <div class="card"><div class="sw"></div>Chasen whisk<span>$19</span><span class="btn">Add to cart</span></div>
+      <div class="card"><div class="sw"></div>Matcha bowl<span>$44</span><span class="btn">Add to cart</span></div>
+    </div>`;
+  if (site.kind === 'mail') return `
+    <div class="hdr"><div class="brand">${site.name}</div><div class="nav"><span>Inbox</span><span>Starred</span><span>Sent</span></div></div>
+    <div class="lines">
+      <div class="row"><span class="who">Kettle & Co.</span><span class="sub">Invoice #4471 for your March order</span><span class="btn target">Open</span></div>
+      <div class="row"><span class="who">Yamada Tea</span><span class="sub">Your shipment is on its way</span><span class="btn">Open</span></div>
+      <div class="row"><span class="who">Studio Kiln</span><span class="sub">Re: custom glaze samples</span><span class="btn">Open</span></div>
+      <div class="row"><span class="who">Bank</span><span class="sub">Statement ready</span><span class="btn">Open</span></div>
+    </div>`;
+  return `
+    <div class="hdr"><div class="brand">${site.name}</div><div class="nav"><span>Guides</span><span>Reference</span><span>Changelog</span></div></div>
+    <div class="hero">Authentication</div>
+    <div class="lines"><div class="line" style="width:80%"></div><div class="line" style="width:92%"></div><div class="line" style="width:60%"></div>
+      <div class="line" style="width:88%"></div><div class="line" style="width:40%"></div></div>
+    <div style="margin-top:16px"><span class="btn target">Copy token</span></div>`;
+}
+
+function createTab() {
+  const site = SITES[nextSite++ % SITES.length];
+  const el = document.createElement('div'); el.className = 'viewer'; el.style.setProperty('--accent', site.accent);
+  el.innerHTML = `
+    <div class="chrome"><div class="tab"><span class="fav"></span> ${site.name}</div><div class="url">${site.url}</div><div class="step">${site.step}</div></div>
+    <div class="page">${pageHtml(site)}</div>
+    <div class="lantern"><div class="name">${site.name}</div><div class="st">${site.step}</div></div>`;
+  viewersEl.appendChild(el);
+  const tab = { el, site, state: 'summoning', settledTotal: 0, settled: 0 };
+  el.addEventListener('click', e => {
+    if (tab.state === 'docked') switchTo(tab);
+    else if (tab === active && tab.state === 'held') clickTell(e.clientX, e.clientY);
+  });
+  tabs.push(tab);
+  return tab;
+}
+const activeTab = () => active;
+const dockedTabs = () => tabs.filter(t => t.state === 'docked');
+
+// Where each tab should be. The active frame is centered; docked tabs float
+// in a row on the pool. Called on every change; CSS transitions do the move.
+function layoutTabs(immediate) {
+  // The active frame stays above the pool so the lantern row is never covered.
+  base.w = Math.min(W * 0.72, 1120, H * 0.60 * 1.6); base.h = base.w * 10 / 16;
+  const docked = dockedTabs();
+  const slotW = base.w * DOCK_SCALE, gap = 18, total = docked.length * slotW + (docked.length - 1) * gap;
+  let di = 0;
+  for (const t of tabs) {
+    t.el.style.width = base.w + 'px'; t.el.style.height = base.h + 'px';
+    if (immediate) t.el.style.transition = 'none';
+    if (t.state === 'docked') {
+      const x = (W - total) / 2 + di++ * (slotW + gap), y = H * 0.80 - base.h * DOCK_SCALE / 2;
+      t.rect = { x, y, w: slotW, h: base.h * DOCK_SCALE };
+      t.el.style.transform = `translate(${x}px, ${y}px) scale(${DOCK_SCALE})`;
+    } else if (t.state === 'sinking') {
+      t.el.style.transform = `translate(${t.rect.x}px, ${t.rect.y + 60}px) scale(${t.rect.w / base.w})`;
+    } else {
+      const x = (W - base.w) / 2, y = H * 0.41 - base.h / 2;
+      t.rect = { x, y, w: base.w, h: base.h };
+      t.el.style.transform = `translate(${x}px, ${y}px) scale(1)`;
+    }
+    if (immediate) { void t.el.offsetHeight; t.el.style.transition = ''; }
+  }
+}
+// The rectangle petals should target for a tab: where it is going, not where
+// it is mid-transition.
+const frameRect = t => t.rect;
+
+// ── Summon: a new tab, made of petals from the canopy.
 function summon() {
-  if (phase === 'summoning' || phase === 'held') return;
-  phase = 'summoning'; summonStart = now; interiorSettled = 0;
-  viewerEl.classList.remove('live'); viewerEl.setAttribute('aria-hidden', 'false');
-  const f = frameRect(), n = settings.count, edgeShare = 0.55;
-  interiorTotal = 0;
+  const cur = activeTab();
+  if (cur && cur.state === 'summoning') return;
+  if (cur) dock(cur);
+  const tab = createTab(); active = tab;
+  tab.el.classList.add('active'); layoutTabs();
+  const f = frameRect(tab), n = settings.count, edgeShare = 0.55;
+  blow(W / 2, H * 0.24, f.x + f.w / 2, f.y + f.h / 2, 150);
   for (let i = 0; i < n; i++) {
     const s = canopyPoint(), p = makePetal(s.x, s.y);
     const onEdge = i < n * edgeShare;
     let t;
     if (onEdge) {
       const u = i / (n * edgeShare); t = perimeterPoint(f, (u + 0.13) % 1);
-      // jitter across the edge so the outline reads as a soft band, not a wire
-      t.x += rand(-9, 9); t.y += rand(-9, 9);
-      p.delay = rand(0, 0.28);
+      t.x += rand(-9, 9); t.y += rand(-9, 9); p.delay = rand(0, 0.32);
     } else {
-      const inset = 26;
-      t = { x: rand(f.x + inset, f.x + f.w - inset), y: rand(f.y + inset, f.y + f.h - inset) };
-      p.delay = rand(0.22, 0.62); interiorTotal++;
+      t = { x: rand(f.x + 26, f.x + f.w - 26), y: rand(f.y + 26, f.y + f.h - 26) };
+      p.delay = rand(0.25, 0.7); tab.settledTotal++;
     }
-    p.mode = 'gather'; p.sx = s.x; p.sy = s.y; p.tx = t.x; p.ty = t.y; p.edge = onEdge;
-    p.dur = settings.duration * rand(0.85, 1.15);
-    // Control point off the straight line: this is what makes the flight arc/spiral.
-    const dx = t.x - s.x, dy = t.y - s.y, len = Math.hypot(dx, dy) || 1;
-    const side = Math.random() < 0.5 ? -1 : 1;
-    const amp = len * rand(0.18, 0.45) * settings.swirl * side;
-    p.cx = (s.x + t.x) / 2 + (-dy / len) * amp; p.cy = (s.y + t.y) / 2 + (dx / len) * amp;
-    p.wob = rand(0, Math.PI * 2); p.wobA = rand(2, 7) * settings.swirl;
-    // Border petals persist. Some of them fade so the outline breathes.
-    p.keep = onEdge && Math.random() < 0.72;
-    p.hoverPhase = rand(0, Math.PI * 2);
+    startFlight(p, s, t, settings.duration * rand(0.8, 1.25));
+    p.edge = onEdge; p.tab = tab; p.keep = onEdge && Math.random() < 0.72;
     petals.push(p);
   }
 }
+function startFlight(p, s, t, dur) {
+  p.mode = 'gather'; p.born = now; p.sx = s.x; p.sy = s.y; p.tx = t.x; p.ty = t.y; p.dur = dur; p.isClick = false;
+  const dx = t.x - s.x, dy = t.y - s.y, len = Math.hypot(dx, dy) || 1, side = Math.random() < 0.5 ? -1 : 1;
+  const arc = len * rand(0.15, 0.42) * settings.swirl * side;
+  p.cx = (s.x + t.x) / 2 + (-dy / len) * arc; p.cy = (s.y + t.y) / 2 + (dx / len) * arc + len * 0.08; // a little sag
+  p.nx = -dy / len; p.ny = dx / len;                  // flutter axis: across the line of flight
+  p.wobA = rand(6, 16) * settings.swirl; p.wobF = rand(5, 9);
+  p.ox = 0; p.oy = 0;                                 // accumulated wind drift
+  p.delay = p.delay || 0;
+}
 
-function dismiss() {
-  if (phase !== 'held' && phase !== 'summoning') return;
-  phase = 'dismissing'; summonStart = now; thinking = false; setPressed('b-think', false);
-  viewerEl.classList.remove('live'); viewerEl.setAttribute('aria-hidden', 'true');
-  const f = frameRect();
-  // Everything still attached to the frame lets go...
-  for (const p of petals) if (p.mode === 'border' || p.mode === 'gather' || p.mode === 'orbit') startFall(p, rand(0, 0.35));
-  // ...and the interior re-sheds as petals so the contents visibly come apart.
+// Dock the active tab: it drifts back to the pool while its border lets go.
+function dock(tab) {
+  tab.state = 'docked';
+  tab.el.classList.remove('active'); tab.el.classList.add('docked');
+  layoutTabs(); carryBorder(tab, frameRect(tab));
+}
+// A docked frame takes some of its outline with it: a share of the border
+// petals fly to the lantern and settle there; the rest let go and dissolve.
+function carryBorder(tab, to) {
+  let i = 0;
+  for (const p of petals) if (p.tab === tab && (p.mode === 'border' || p.mode === 'gather' || p.mode === 'settle')) {
+    if (p.mode === 'gather' && !p.edge) tab.settled++;
+    if (i++ % 6 === 0) {
+      const t = perimeterPoint(to, Math.random()); t.x += rand(-3, 3); t.y += rand(-3, 3);
+      startFlight(p, { x: p.x, y: p.y }, t, rand(0.7, 1.0)); p.edge = true; p.keep = true;
+    } else { startFall(p, rand(0, 0.25)); p.die = now + rand(0.7, 1.4); }
+  }
+}
+// Switch: a gust. The active frame docks, the chosen lantern rises and gets a fresh border.
+function switchTo(tab) {
+  if (!tab || tab.state !== 'docked') return;
+  const cur = activeTab(); if (cur && cur.state === 'summoning') return;
+  if (cur) dock(cur);
+  active = tab; tab.state = 'held';
+  tab.el.classList.remove('docked'); tab.el.classList.add('active'); tab.el.style.opacity = 1;
+  const from = tab.rect; layoutTabs(); const f = frameRect(tab);
+  blow(from.x + from.w / 2, from.y, f.x + f.w / 2, f.y + f.h / 2, 90);
+  // A lighter outline forms from the canopy as the tab arrives, with a few
+  // petals riding up from the lantern itself.
+  const n = settings.calm ? 60 : 150;
+  for (let i = 0; i < n; i++) {
+    const fromLantern = i % 4 === 0;
+    const s = fromLantern ? { x: rand(from.x, from.x + from.w), y: rand(from.y, from.y + from.h) } : canopyPoint();
+    const p = makePetal(s.x, s.y); const t = perimeterPoint(f, (i / n + 0.13) % 1); t.x += rand(-9, 9); t.y += rand(-9, 9);
+    p.delay = rand(0.05, 0.5); startFlight(p, s, t, settings.duration * rand(0.6, 0.9));
+    p.edge = true; p.tab = tab; p.keep = Math.random() < 0.72; petals.push(p);
+  }
+  if (thinking) setThinking(false);
+}
+function cycle() { const d = dockedTabs(); if (d.length) switchTo(d[d.length - 1]); }
+
+// Close the active tab: the frame comes apart and sinks into the reflection.
+function closeActive() {
+  const tab = activeTab(); if (!tab) return;
+  if (thinking) setThinking(false);
+  const f = frameRect(tab); releaseBorder(tab);
   const n = settings.calm ? 90 : 220;
   for (let i = 0; i < n; i++) {
     const p = makePetal(rand(f.x, f.x + f.w), rand(f.y, f.y + f.h));
-    p.alpha = 0; p.fadeIn = true; startFall(p, rand(0, 0.5)); petals.push(p);
+    p.alpha = 0; p.fadeIn = true; startFall(p, rand(0, 0.5)); p.fall *= 1.8; p.die = now + rand(1.6, 2.8); petals.push(p);
+  }
+  tab.state = 'sinking'; tab.el.classList.remove('active'); tab.el.classList.add('sinking'); layoutTabs();
+  setTimeout(() => { tab.el.remove(); const i = tabs.indexOf(tab); if (i >= 0) tabs.splice(i, 1); layoutTabs(); }, 1100);
+  active = null;
+  // The most recent lantern rises to take its place.
+  const d = dockedTabs(); if (d.length) setTimeout(() => { if (!active) switchTo(d[d.length - 1]); }, 350);
+}
+function releaseBorder(tab) {
+  for (const p of petals) if (p.tab === tab && (p.mode === 'border' || p.mode === 'gather' || p.mode === 'settle')) {
+    if (p.mode === 'gather' && !p.edge) tab.settled++;   // count it so a mid-summon tab still reveals
+    startFall(p, rand(0, 0.35)); p.fall *= 1.6; p.die = now + rand(1.8, 3.0);
   }
 }
 function startFall(p, delay) {
-  p.mode = 'fall'; p.fallAt = now + delay; p.vx = rand(-14, 14); p.vy = rand(-10, 10);
-  p.sway = rand(0, Math.PI * 2); p.rippled = false;
+  p.mode = 'fall'; p.fallAt = now + delay; p.baseRot = p.rot; p.rippled = false;
+  p.vx = rand(-20, 20); p.vy = rand(-30, 5);
+  if (Math.random() < 0.2) p.vy = rand(-90, -40);   // caught by the gust: a brief lift before it falls
 }
 
-// A click tell: one petal drops from the top edge to the point and lands with a ripple.
-const ripples = [];
+// A click tell: one petal drops from the top edge onto the point and rings it.
 function clickTell(x, y) {
-  const f = frameRect();
-  const p = makePetal(x + rand(-40, 40), f.y - 10);
-  p.mode = 'gather'; p.sx = p.x; p.sy = p.y; p.tx = x; p.ty = y; p.delay = 0; p.dur = 0.55;
-  p.cx = (p.sx + x) / 2 + rand(-30, 30); p.cy = (p.sy + y) / 2; p.wob = 0; p.wobA = 0;
-  p.edge = false; p.keep = false; p.isClick = true; petals.push(p);
+  const tab = activeTab(); if (!tab) return; const f = frameRect(tab);
+  const s = { x: x + rand(-40, 40), y: f.y - 10 }, p = makePetal(s.x, s.y);
+  startFlight(p, s, { x, y }, 0.7); p.wobA *= 0.5; p.edge = false; p.keep = false; p.isClick = true; p.tab = tab; petals.push(p);
 }
 
-// Thinking: a loose orbit around the frame.
+// Thinking: a loose orbit around the active frame, breathing with the wind.
+let thinking = false;
 function setThinking(on) {
+  const tab = activeTab(); if (on && !tab) return;
   thinking = on; setPressed('b-think', on);
   if (on) {
-    const f = frameRect(), n = settings.calm ? 14 : 36;
+    const f = frameRect(tab), n = settings.calm ? 14 : 36;
     for (let i = 0; i < n; i++) {
       const p = makePetal(f.x + f.w / 2, f.y + f.h / 2);
-      p.mode = 'orbit'; p.ang = (i / n) * Math.PI * 2; p.angV = rand(0.35, 0.7) * (Math.random() < .5 ? -1 : 1);
-      // Well clear of the border band so it reads as an orbit, not a thicker edge.
+      p.mode = 'orbit'; p.tab = tab; p.ang = (i / n) * Math.PI * 2; p.angV = rand(0.3, 0.6) * (Math.random() < .5 ? -1 : 1);
       p.rx = f.w / 2 + rand(64, 120); p.ry = f.h / 2 + rand(54, 100); p.alpha = 0; p.fadeIn = true; petals.push(p);
     }
-  } else {
-    for (const p of petals) if (p.mode === 'orbit') startFall(p, rand(0, 0.3));
-  }
+  } else for (const p of petals) if (p.mode === 'orbit') startFall(p, rand(0, 0.3));
 }
 
 // ── Update
 function update(dt) {
-  const f = frameRect();
+  gust.x *= Math.pow(0.1, dt); gust.y *= Math.pow(0.1, dt);
   let border = 0;
   for (let i = petals.length - 1; i >= 0; i--) {
     const p = petals[i];
-    p.rot += p.rotV * dt; p.flip += p.flipV * dt;
+    p.px = p.x; p.py = p.y;
     if (p.fadeIn) { p.alpha = Math.min(1, p.alpha + dt * 3); if (p.alpha >= 1) p.fadeIn = false; }
+    if (p.baseRot === undefined) p.baseRot = p.rot;
 
     if (p.mode === 'ambient') {
-      p.sway += dt * 1.4;
-      p.x += (p.vx + Math.sin(p.sway) * 18) * dt; p.y += p.vy * dt;
-      if (p.y > waterline() + 20 || p.x < -40 || p.x > W + 40) { petals.splice(i, 1); spawnAmbient(); }
+      flutterStep(p, dt, 1);
+      if (p.y > waterline() + 20 || p.x < -60 || p.x > W + 60) { petals.splice(i, 1); spawnAmbient(false); }
     }
     else if (p.mode === 'gather') {
       const t = clamp((now - p.born - p.delay) / p.dur, 0, 1);
       if (t <= 0) continue;
-      const e = easeInOutCubic(t), u = 1 - e;
-      // Quadratic bezier from canopy to target, plus a wobble that dies on arrival.
-      p.x = u * u * p.sx + 2 * u * e * p.cx + e * e * p.tx + Math.sin(p.wob + t * 9) * p.wobA * u;
-      p.y = u * u * p.sy + 2 * u * e * p.cy + e * e * p.ty + Math.cos(p.wob + t * 7) * p.wobA * u;
+      const e = flightEase(t), u = 1 - e;
+      // Wind drift accumulates while airborne and is reeled in as the petal arrives.
+      const w = wind(p.x, p.y, now); p.ox += w.x * dt; p.oy += w.y * dt;
+      // Flutter across the line of flight, strongest mid-flight, gone at both ends.
+      const fl = Math.sin(p.phase + t * p.wobF * Math.PI) * p.wobA * Math.sin(Math.PI * t);
+      p.x = u * u * p.sx + 2 * u * e * p.cx + e * e * p.tx + p.nx * fl + p.ox * u;
+      p.y = u * u * p.sy + 2 * u * e * p.cy + e * e * p.ty + p.ny * fl + p.oy * u;
+      // Tilt into the direction of travel, tumble faster when moving faster.
+      const vx = (p.x - p.px) / dt, vy = (p.y - p.py) / dt, speed = Math.hypot(vx, vy);
+      if (speed > 8) p.rot = lerpAngle(p.rot, Math.atan2(vy, vx) + Math.PI / 2 + p.spin * 0.4, 1 - Math.pow(0.02, dt));
+      p.flip += (1.2 + speed * 0.012) * dt;
       if (t >= 1) {
+        p.mode = 'settle'; p.settleAt = now; p.svx = vx; p.svy = vy; p.baseRot = p.rot;
+        const sp = Math.hypot(vx, vy) || 1; p.svx = vx / sp; p.svy = vy / sp;
+      }
+    }
+    else if (p.mode === 'settle') {
+      // Overshoot along the last heading and ease back: the landing has weight.
+      const s = clamp((now - p.settleAt) / 0.42, 0, 1), k = Math.sin(s * Math.PI * 1.5) * (1 - s) * 7;
+      p.x = p.tx + p.svx * k; p.y = p.ty + p.svy * k;
+      p.rot = lerpAngle(p.rot, p.baseRot + rand(-0.02, 0.02), 1 - Math.pow(0.1, dt));
+      if (s >= 1) {
         if (p.isClick) { ripples.push({ x: p.tx, y: p.ty, born: now }); ripples.push({ x: p.tx, y: p.ty, born: now + 0.18 }); p.mode = 'fade'; }
-        else if (p.edge && p.keep) { p.mode = 'border'; p.hx = p.tx; p.hy = p.ty; }
-        else { p.mode = 'fade'; if (!p.edge) interiorSettled++; }
+        else if (p.edge && p.keep) { p.mode = 'border'; p.hx = p.tx; p.hy = p.ty; p.hoverPhase = rand(0, Math.PI * 2); }
+        else { p.mode = 'fade'; if (!p.edge && p.tab) p.tab.settled++; }
       }
     }
     else if (p.mode === 'border') {
       border++;
-      // Hover at the outline. The frame is held by the wind, not pinned.
-      const k = now * 1.3 + p.hoverPhase;
-      p.x = p.hx + Math.sin(k) * 3 + Math.sin(k * 0.37) * 2;
-      p.y = p.hy + Math.cos(k * 0.8) * 3;
-      p.rotV = 0.35 * Math.sin(k * 0.5);
-      // Occasionally a petal lets go from the outline and drifts off.
-      if (!settings.calm && Math.random() < dt * 0.02) { p.mode = 'fall'; p.fallAt = now; p.vx = rand(-30, 30); p.vy = rand(-20, 0); p.rippled = true; }
+      // The outline rides the wind field, so a breath moves neighbours together.
+      const w = wind(p.hx, p.hy, now), k = now * 1.3 + p.hoverPhase;
+      p.x = p.hx + w.x * 0.16 + Math.sin(k) * 1.5; p.y = p.hy + w.y * 0.16 + Math.cos(k * 0.8) * 1.5;
+      p.rot = lerpAngle(p.rot, p.baseRot + w.x * 0.012, 1 - Math.pow(0.05, dt)); p.flip += 0.8 * dt;
+      if (!settings.calm && Math.random() < dt * 0.02) { startFall(p, 0); p.rippled = true; }
     }
     else if (p.mode === 'fall') {
       if (now < p.fallAt) continue;
-      p.sway += dt * 2.2;
-      p.vy = Math.min(p.vy + 140 * dt, 95); p.vx *= 0.995;
-      p.x += (p.vx + Math.sin(p.sway) * 26) * dt; p.y += p.vy * dt;
+      flutterStep(p, dt, smoothstep(0, 0.6, now - p.fallAt));
+      if (p.die && now > p.die) { p.alpha -= dt * 2; if (p.alpha <= 0) { petals.splice(i, 1); continue; } }
       if (p.y > waterline() - rand(0, 30)) {
-        // Only some landings ripple, or the waterline turns into a wall of rings.
         if (!p.rippled) { if (Math.random() < 0.18) ripples.push({ x: p.x, y: p.y, born: now, small: true }); p.rippled = true; }
         p.alpha -= dt * 2.5; if (p.alpha <= 0) petals.splice(i, 1);
       }
     }
     else if (p.mode === 'orbit') {
-      p.ang += p.angV * dt;
-      p.x = f.x + f.w / 2 + Math.cos(p.ang) * p.rx; p.y = f.y + f.h / 2 + Math.sin(p.ang) * p.ry;
+      const f = p.tab && p.tab.rect; if (!f) { petals.splice(i, 1); continue; }
+      p.ang += p.angV * (1 + 0.3 * Math.sin(now * 0.7 + p.phase)) * dt;
+      const w = wind(p.x, p.y, now);
+      p.x = f.x + f.w / 2 + Math.cos(p.ang) * p.rx + w.x * 0.3; p.y = f.y + f.h / 2 + Math.sin(p.ang) * p.ry + w.y * 0.3;
+      p.rot = lerpAngle(p.rot, p.ang + (p.angV > 0 ? Math.PI : 0), 1 - Math.pow(0.05, dt)); p.flip += 1.4 * dt;
     }
-    else if (p.mode === 'fade') {
-      p.alpha -= dt * 2.2; if (p.alpha <= 0) petals.splice(i, 1);
-    }
+    else if (p.mode === 'fade') { p.alpha -= dt * 2.2; if (p.alpha <= 0) petals.splice(i, 1); }
   }
   for (let i = ripples.length - 1; i >= 0; i--) if (now - ripples[i].born > 1.1) ripples.splice(i, 1);
 
-  // Reveal the viewer as the interior settles: it should feel *made of* the
-  // petals, so opacity follows them rather than a fixed timer.
-  if (phase === 'summoning') {
-    const frac = interiorTotal ? interiorSettled / interiorTotal : 1;
-    const reveal = clamp((frac - 0.15) / 0.7, 0, 1);
-    viewerEl.style.opacity = easeOutQuart(reveal).toFixed(3);
-    if (frac >= 0.98) { phase = 'held'; viewerEl.style.opacity = 1; viewerEl.classList.add('live'); }
-  } else if (phase === 'dismissing') {
-    const t = clamp((now - summonStart) / 0.45, 0, 1);
-    viewerEl.style.opacity = (1 - easeOutQuart(t)).toFixed(3);
-    if (t >= 1) phase = 'idle';
+  // Reveal each summoning tab as its interior settles: it is made of the petals.
+  for (const t of tabs) if (t.state === 'summoning') {
+    const frac = t.settledTotal ? t.settled / t.settledTotal : 1;
+    t.el.style.opacity = easeOutQuart(clamp((frac - 0.15) / 0.7, 0, 1)).toFixed(3);
+    if (frac >= 0.98) { t.state = 'held'; t.el.style.opacity = 1; }
   }
-  statEl.textContent = `${petals.length} petals · ${border} on frame · ${phase}`;
+  const a = activeTab();
+  statEl.textContent = `${petals.length} petals · ${border} on frame · ${tabs.length} tab${tabs.length === 1 ? '' : 's'}${a ? ' · ' + a.state : ''}`;
 }
 
 // ── Draw
@@ -386,7 +560,7 @@ function draw() {
     if (p.alpha <= 0) continue;
     if (p.mode === 'gather' && now - p.born < p.delay) continue;
     if (p.mode === 'fall' && now < p.fallAt) continue;
-    const s = sprites[p.sprite], sc = p.size * SPRITE, fx = 0.35 + 0.65 * Math.abs(Math.cos(p.flip));
+    const s = sprites[p.sprite], sc = p.size * SPRITE, fx = 0.3 + 0.7 * Math.abs(Math.cos(p.flip));
     ctx.save(); ctx.globalAlpha = p.alpha; ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.scale(fx, 1);
     ctx.drawImage(s, -sc / 2, -sc / 2, sc, sc); ctx.restore();
   }
@@ -397,32 +571,35 @@ function frame(ts) {
   const dt = Math.min((ts - last) / 1000, 0.05); last = ts; now = ts / 1000;
   update(dt); draw(); requestAnimationFrame(frame);
 }
+resize();
+for (let i = 0; i < settings.ambient; i++) spawnAmbient(true);
 requestAnimationFrame(frame);
 
 // ── Controls
 function setPressed(id, on) { document.getElementById(id).setAttribute('aria-pressed', String(on)); }
 function doClick() {
-  if (phase !== 'held') return;
-  const b = document.getElementById('target-btn').getBoundingClientRect();
+  const tab = activeTab(); if (!tab || tab.state !== 'held') return;
+  const b = tab.el.querySelector('.target').getBoundingClientRect();
   clickTell(b.left + b.width / 2, b.top + b.height / 2);
-  const step = document.getElementById('step'); step.textContent = 'Step 3 · add to cart ✓';
-  setTimeout(() => step.textContent = 'Step 4 · open cart', 900);
+  const step = tab.el.querySelector('.step'); const was = step.textContent;
+  step.textContent = was + ' ✓'; setTimeout(() => step.textContent = was, 900);
 }
 document.getElementById('b-summon').onclick = summon;
-document.getElementById('b-dismiss').onclick = dismiss;
+document.getElementById('b-switch').onclick = cycle;
+document.getElementById('b-close').onclick = closeActive;
 document.getElementById('b-click').onclick = doClick;
 document.getElementById('b-think').onclick = () => setThinking(!thinking);
 document.getElementById('b-calm').onclick = () => { settings.calm = !settings.calm; setPressed('b-calm', settings.calm); };
 setPressed('b-calm', settings.calm);
 window.addEventListener('keydown', e => {
-  if (e.key === ' ') { e.preventDefault(); phase === 'held' ? dismiss() : summon(); }
-  else if (e.key === 'Escape') dismiss();
+  if (e.key === ' ') { e.preventDefault(); summon(); }
+  else if (e.key === 'Tab') { e.preventDefault(); cycle(); }
+  else if (e.key === 'Escape') closeActive();
   else if (e.key === 'c' || e.key === 'C') doClick();
   else if (e.key === 't' || e.key === 'T') setThinking(!thinking);
   else if (e.key === 'm' || e.key === 'M') document.getElementById('b-calm').click();
+  else if (e.key >= '1' && e.key <= '9') { const d = dockedTabs()[e.key - 1]; if (d) switchTo(d); }
 });
-// Clicking inside the live viewer lands a petal where you clicked.
-viewerEl.addEventListener('click', e => { if (phase === 'held') clickTell(e.clientX, e.clientY); });
 </script>
 </body>
 </html>
