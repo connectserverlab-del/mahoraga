@@ -14,7 +14,7 @@
     --font: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
     --glass: rgba(255,255,255,.62); --glass-line: rgba(255,255,255,.75); --glass-ink: #4a4058;
-    --rose: #e8a3bb; --gold: #e6c98a; --moss: #9fc7a8; --sky: #a9c4e6;
+    --rose: #e8a3bb; --gold: #e6c98a;
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; overflow: hidden; background: #e9e0f2; }
@@ -25,23 +25,20 @@
   .domain video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 
   /* ── Petal layer: one 2D canvas above the scene ─────────────────────────── */
-  #petals { position: fixed; inset: 0; z-index: 3; pointer-events: none; }
+  /* Above every viewer (cards carry z-index up to ~100 for deck order), below the HUD. */
+  #petals { position: fixed; inset: 0; z-index: 200; pointer-events: none; }
 
-  /* ── Viewers. Each tab is one of these. It is laid out at its full size at
-        the origin and moved with a transform, so the same element can be the
-        big active frame or a small lantern on the pool, and the move between
-        the two is a single transition the petals dress. ─────────────────── */
+  /* ── Viewers. Each tab is one of these, laid out at full size at the origin
+        and placed with a transform. The deck is the same elements at
+        different depths, so riffling is just retargeting transforms. ─────── */
   .viewer { position: fixed; z-index: 2; left: 0; top: 0; transform-origin: 0 0; opacity: 0;
     border-radius: 18px; overflow: hidden; pointer-events: none;
     background: rgba(24, 18, 30, .58);
     box-shadow: 0 30px 80px rgba(60, 30, 70, .35), inset 0 0 0 1px rgba(255,255,255,.18);
     backdrop-filter: blur(6px) saturate(120%); -webkit-backdrop-filter: blur(6px) saturate(120%);
-    transition: transform .8s cubic-bezier(.22,.9,.3,1), opacity .45s ease, filter .8s ease; }
+    transition: transform .7s cubic-bezier(.22,.9,.3,1), opacity .45s ease, filter .7s ease; }
+  .viewer.direct { transition: none; }          /* while a hand holds it: no lag */
   .viewer.active { pointer-events: auto; }
-  .viewer.docked { pointer-events: auto; cursor: pointer; opacity: .88; filter: saturate(.85) brightness(.95);
-    /* A lantern on the water carries its reflection. Chromium only; fine for a prototype. */
-    -webkit-box-reflect: below 3px linear-gradient(transparent 55%, rgba(255,255,255,.28)); }
-  .viewer.docked:hover { opacity: 1; filter: none; }
   .viewer.sinking { opacity: 0 !important; transition: transform 1.1s ease-in, opacity .9s ease-in; }
   .viewer .chrome { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px;
     background: rgba(255,255,255,.08); border-bottom: 1px solid rgba(255,255,255,.12); color: #f3e9f2; }
@@ -51,12 +48,6 @@
   .viewer .url { flex: 1; font-family: var(--mono); font-size: 12px; color: rgba(243,233,242,.75);
     background: rgba(0,0,0,.22); border-radius: 9px; padding: 6px 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .viewer .step { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--gold); white-space: nowrap; }
-  /* Docked lanterns read at a glance: big site name, the step, nothing else. */
-  .viewer .lantern { position: absolute; inset: 0; display: none; flex-direction: column; justify-content: flex-end; padding: 8%;
-    color: #f7eef5; background: linear-gradient(180deg, rgba(0,0,0,0) 30%, rgba(20,12,26,.55)); }
-  .viewer .lantern .name { font-size: 84px; font-weight: 700; letter-spacing: -.02em; line-height: 1; }
-  .viewer .lantern .st { font-size: 40px; color: var(--gold); margin-top: 14px; letter-spacing: .04em; text-transform: uppercase; }
-  .viewer.docked .lantern { display: flex; }
   /* Fake pages, so the summon has something to reveal. Replace with the real feed. */
   .page { position: absolute; inset: 44px 0 0 0; padding: 22px 26px; color: #efe6ee; overflow: hidden; }
   .page .hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
@@ -77,18 +68,23 @@
   .page .row .who { width: 120px; font-weight: 600; }
   .page .row .sub { flex: 1; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-  /* ── HUD: the same glass pills the console already uses ─────────────────── */
-  .hud { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 5; display: flex; gap: 8px; align-items: center; }
+  /* ── HUD ────────────────────────────────────────────────────────────────── */
+  .hud { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 300; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: center; max-width: 96vw; }
   .hud button { font: inherit; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6b5f7a;
     background: var(--glass); border: 1px solid var(--glass-line); border-radius: 20px; padding: 8px 14px;
     backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); cursor: pointer; transition: .15s; white-space: nowrap; }
   .hud button:hover { background: rgba(255,255,255,.8); color: #3f3550; }
   .hud button[aria-pressed="true"] { background: rgba(232,163,187,.55); border-color: rgba(232,163,187,.8); color: #4a2035; }
   .hud kbd { font: inherit; opacity: .6; margin-right: 4px; }
-  .stat { position: fixed; right: 16px; bottom: 26px; z-index: 5; font-family: var(--mono); font-size: 11px; color: #6b5f7a;
-    background: var(--glass); border: 1px solid var(--glass-line); border-radius: 12px; padding: 6px 10px;
-    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); opacity: .8; }
-  @media (max-width: 900px) { .stat { display: none; } }
+  .panel { position: fixed; z-index: 300; font-family: var(--mono); font-size: 11px; color: #6b5f7a; line-height: 1.5;
+    background: var(--glass); border: 1px solid var(--glass-line); border-radius: 12px; padding: 8px 12px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); opacity: .85; pointer-events: none; }
+  .stat { right: 16px; bottom: 26px; }
+  .log { left: 16px; top: 16px; width: 300px; }
+  .log b { color: #4a2035; font-weight: 600; }
+  .log .t { opacity: .55; }
+  .log .hint { border-top: 1px solid rgba(0,0,0,.08); margin-top: 6px; padding-top: 6px; opacity: .75; }
+  @media (max-width: 900px) { .stat, .log { display: none; } }
 </style>
 </head>
 <body>
@@ -103,40 +99,66 @@
 <div id="viewers"></div>
 <canvas id="petals"></canvas>
 
+<div class="panel log" id="log"></div>
 <div class="hud">
-  <button id="b-summon"><kbd>Space</kbd>New tab</button>
-  <button id="b-switch"><kbd>Tab</kbd>Switch</button>
-  <button id="b-close"><kbd>Esc</kbd>Close</button>
-  <button id="b-click"><kbd>C</kbd>Click</button>
-  <button id="b-think" aria-pressed="false"><kbd>T</kbd>Thinking</button>
-  <button id="b-calm" aria-pressed="false"><kbd>M</kbd>Calm</button>
+  <button data-cmd="summon"><kbd>Space</kbd>New tab</button>
+  <button data-cmd="prev"><kbd>←</kbd>Prev</button>
+  <button data-cmd="next"><kbd>→</kbd>Next</button>
+  <button data-cmd="back"><kbd>B</kbd>Send back</button>
+  <button data-cmd="close"><kbd>Esc</kbd>Close</button>
+  <button data-cmd="click"><kbd>C</kbd>Click</button>
+  <button data-cmd="think" id="b-think" aria-pressed="false"><kbd>T</kbd>Thinking</button>
+  <button data-cmd="calm" id="b-calm" aria-pressed="false"><kbd>M</kbd>Calm</button>
 </div>
-<div class="stat" id="stat"></div>
+<div class="panel stat" id="stat"></div>
 
 <script>
 // ─────────────────────────────────────────────────────────────────────────────
-// Petal summon prototype, round two: natural motion and multiple tabs.
+// Petal summon prototype, round three: a stacked deck with an event surface
+// for hand gestures.
 //
-// One rule: the tree is the source of everything. A summon sheds petals from
-// the canopy; they trace the viewer's outline first, then fill it in, and the
-// live view fades up underneath as they settle. Dismiss loosens the frame
-// back into petals that fall to the pool.
+// The gesture side is being built separately. This file exposes everything a
+// gesture layer needs on `window.MahoragaTabs`, in two layers:
 //
-// Motion is built on three things petals actually do:
-//   1. They share the air. A smooth wind field moves neighbours together, and
-//      every summon is a gust through it that ambient petals feel too.
-//   2. They get plucked fast and land slow: quick departure, long float,
-//      side-to-side flutter, and a small overshoot before they settle.
-//   3. They tilt into their swing, and tumble faster the faster they move.
+//   Intents  — one call, one outcome. Attach a recognised gesture to one.
+//     MahoragaTabs.send('summon')            new tab, summoned from the canopy
+//     MahoragaTabs.send('next')  / 'prev'    riffle the deck one card
+//     MahoragaTabs.send('back')              active tab goes to the back
+//     MahoragaTabs.send('close')             active tab sinks into the pool
+//     MahoragaTabs.send('click', {x, y})     click tell at a screen point
+//     MahoragaTabs.send('think', {on})       thinking orbit on/off
+//     MahoragaTabs.send('scale', {factor})   multiply the deck's size (clamped)
+//     MahoragaTabs.send('scale.to', {scale}) set it absolutely
+//     MahoragaTabs.send('move', {dx, dy})    nudge the deck
 //
-// Tabs: the active tab is the big frame. Others float as small lanterns on
-// the pool with their reflection. Switching is a gust that swaps them;
-// closing sinks the tab into the water.
+//   Continuous — for gestures with a clutch (pinch) that track the hand:
+//     'hand'        {id, x, y, pinch}   where a hand is; draws a petal cursor
+//     'hand.lost'   {id}                the hand left the frame
+//     'grab'        {id, x, y}          pinch closed: hold the active frame
+//     'grab.move'   {id, x, y}          move while held
+//     'grab.end'    {id, x, y, vx, vy}  pinch opened. Velocity decides:
+//                                        fast sideways → next/prev, fast down
+//                                        toward the pool → close, else drop
+//     'scrub'       {id, x}             start riffling from a screen x
+//     'scrub.move'  {id, x}             cards fan under the hand
+//     'scrub.end'   {id, vx}            snap to the nearest card
+//     'stretch'     {id, distance}      two-hand pinch: start resizing
+//     'stretch.move'{id, distance}      resize by the ratio to the start
+//     'stretch.end' {id}
+//
+//   Outcomes — subscribe with MahoragaTabs.on(name, fn):
+//     'tab.summoned', 'tab.activated', 'tab.closed', 'deck.changed',
+//     'deck.moved', 'deck.scaled', 'grab.rejected' (nothing under the hand)
+//
+// A virtual hand driven by the mouse exercises the same surface here:
+// move = 'hand', drag = grab, shift+drag = scrub, wheel = scale.
+// The petal engine (wind, flutter, settle) is unchanged from round two.
 // ─────────────────────────────────────────────────────────────────────────────
 const canvas = document.getElementById('petals');
 const ctx = canvas.getContext('2d', { alpha: true });
 const viewersEl = document.getElementById('viewers');
 const statEl = document.getElementById('stat');
+const logEl = document.getElementById('log');
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 let W = 0, H = 0, now = 0;
 
@@ -145,23 +167,19 @@ function resize() {
   canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
   canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
-  layoutTabs(true);
+  layoutDeck(true);
 }
 window.addEventListener('resize', resize);
 
 // ── Helpers
 const rand = (a, b) => a + Math.random() * (b - a);
-const pick = a => a[(Math.random() * a.length) | 0];
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-const lerp = (a, b, t) => a + (b - a) * t;
 const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
 const easeOutQuart = t => 1 - Math.pow(1 - t, 4);
-// Plucked fast, lands slow: a short ramp so nothing teleports, then a long ease-out float.
 const flightEase = t => smoothstep(0, 0.14, t) * (1 - Math.pow(1 - t, 2.6));
-// Shortest-path angle lerp, so a petal turning into the wind never spins the long way round.
 function lerpAngle(a, b, t) { let d = (b - a + Math.PI * 3) % (Math.PI * 2) - Math.PI; return a + d * t; }
 
-// ── Petal sprites: four tints pre-rendered so each petal is one drawImage.
+// ── Petal sprites
 const TINTS = [['#fbe4ec', '#f2b7cb'], ['#f9d5e0', '#eea6bf'], ['#fdeff4', '#f4c3d3'], ['#f6c6d6', '#e79ab6']];
 const SPRITE = 28;
 const sprites = TINTS.map(([light, deep]) => {
@@ -176,7 +194,7 @@ const sprites = TINTS.map(([light, deep]) => {
   return c;
 });
 
-// ── Settings. Calm is the reduced-motion profile.
+// ── Settings
 const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const settings = {
   calm: prefersReduced,
@@ -187,8 +205,7 @@ const settings = {
   get windScale(){ return this.calm ? 0.4 : 1.0; },
 };
 
-// ── Wind. A smooth vector field in space and time, so petals near each other
-//    move together, plus a gust vector that summons and switches kick into it.
+// ── Wind
 const gust = { x: 0, y: 0 };
 function wind(x, y, t) {
   const kx = x * 0.0042, ky = y * 0.0042;
@@ -201,68 +218,71 @@ function blow(fromX, fromY, toX, toY, strength) {
   const dx = toX - fromX, dy = toY - fromY, len = Math.hypot(dx, dy) || 1;
   gust.x += dx / len * strength; gust.y += dy / len * strength;
 }
-
-// The canopy: where petals come from. Roughly the tree's crown in the clip.
 function canopyPoint() {
   const a = rand(0, Math.PI * 2), r = Math.sqrt(Math.random());
   return { x: W * 0.5 + Math.cos(a) * r * W * 0.42, y: H * 0.24 + Math.sin(a) * r * H * 0.2 };
 }
 const waterline = () => H * 0.8;
-
-// A point on a rectangle's outline, evenly distributed by perimeter.
 function perimeterPoint(f, u) {
-  const per = 2 * (f.w + f.h); let d = u * per;
+  const per = 2 * (f.w + f.h); let d = ((u % 1) + 1) % 1 * per;
   if (d < f.w) return { x: f.x + d, y: f.y };
   d -= f.w; if (d < f.h) return { x: f.x + f.w, y: f.y + d };
   d -= f.h; if (d < f.w) return { x: f.x + f.w - d, y: f.y + f.h };
   d -= f.w; return { x: f.x, y: f.y + f.h - d };
 }
 
-// ── Petals. mode: ambient | gather | settle | border | fall | orbit | fade
-const petals = [];
-const ripples = [];
-
+// ── Petals. mode: ambient | gather | settle | border | fall | orbit | cursor | fade
+const petals = [], ripples = [];
 function makePetal(x, y) {
   return {
     x, y, px: x, py: y, mode: 'ambient', sprite: (Math.random() * sprites.length) | 0,
     size: rand(0.55, 1.05), rot: rand(0, Math.PI * 2), spin: rand(-1.6, 1.6),
     flip: rand(0, Math.PI * 2), alpha: 1, born: now, tab: null,
-    // flutter: the side-to-side swing every falling petal has
-    phase: rand(0, Math.PI * 2), freq: rand(3.2, 5.6), amp: rand(22, 58), fall: rand(34, 62),
-    vx: 0, vy: 0,
+    phase: rand(0, Math.PI * 2), freq: rand(3.2, 5.6), amp: rand(22, 58), fall: rand(34, 62), vx: 0, vy: 0,
   };
 }
 function spawnAmbient(fresh) {
-  const p = makePetal(rand(0, W), fresh ? rand(-40, H * 0.5) : rand(-60, -20));
-  p.alpha = rand(.5, .9); petals.push(p);
+  const p = makePetal(rand(0, W), fresh ? rand(-40, H * 0.5) : rand(-60, -20)); p.alpha = rand(.5, .9); petals.push(p);
 }
-
-// Falling-leaf motion, shared by ambient petals and dismissed ones: a lateral
-// swing, a fall speed that eases at the ends of the swing, the wind, and a
-// tilt into the swing so the petal leans the way it is going.
 function flutterStep(p, dt, gravityRamp) {
   p.phase += p.freq * dt;
-  const swing = Math.sin(p.phase);
-  const w = wind(p.x, p.y, now);
+  const swing = Math.sin(p.phase), w = wind(p.x, p.y, now);
   const vy = p.fall * (0.55 + 0.45 * Math.abs(Math.cos(p.phase))) * gravityRamp;
-  p.x += (swing * p.amp + w.x + p.vx) * dt;
-  p.y += (vy + w.y * 0.5 + p.vy) * dt;
+  p.x += (swing * p.amp + w.x + p.vx) * dt; p.y += (vy + w.y * 0.5 + p.vy) * dt;
   p.vx *= Math.pow(0.15, dt); p.vy *= Math.pow(0.15, dt);
   p.rot = lerpAngle(p.rot, p.baseRot + swing * 0.7, 1 - Math.pow(0.02, dt));
   p.flip += (1.6 + Math.abs(swing) * 2.2) * dt;
 }
+function startFlight(p, s, t, dur) {
+  p.mode = 'gather'; p.born = now; p.sx = s.x; p.sy = s.y; p.tx = t.x; p.ty = t.y; p.dur = dur; p.isClick = false;
+  const dx = t.x - s.x, dy = t.y - s.y, len = Math.hypot(dx, dy) || 1, side = Math.random() < 0.5 ? -1 : 1;
+  const arc = len * rand(0.15, 0.42) * settings.swirl * side;
+  p.cx = (s.x + t.x) / 2 + (-dy / len) * arc; p.cy = (s.y + t.y) / 2 + (dx / len) * arc + len * 0.08;
+  p.nx = -dy / len; p.ny = dx / len; p.wobA = rand(6, 16) * settings.swirl; p.wobF = rand(5, 9);
+  p.ox = 0; p.oy = 0; p.delay = p.delay || 0;
+}
+function startFall(p, delay) {
+  p.mode = 'fall'; p.fallAt = now + delay; p.baseRot = p.rot; p.rippled = false; p.tab = null;
+  p.vx = rand(-20, 20); p.vy = rand(-30, 5);
+  if (Math.random() < 0.2) p.vy = rand(-90, -40);
+}
 
-// ── Tabs
+// ── The deck ───────────────────────────────────────────────────────────────
+// tabs[0] is the active (front) card. The whole deck shares one placement:
+// `view` is the offset and scale a hand has given it. `scrub` is the
+// continuous riffle offset in cards while a hand is fanning the deck.
 const SITES = [
   { name: 'example.shop', url: 'https://example.shop/collections/tea-sets?sort=price', accent: '#e8a3bb', kind: 'shop', step: 'Step 3 · add to cart' },
   { name: 'docs.example', url: 'https://docs.example/api/reference#authentication', accent: '#a9c4e6', kind: 'docs', step: 'Step 1 · read auth section' },
   { name: 'mail.example', url: 'https://mail.example/inbox?label=invoices', accent: '#9fc7a8', kind: 'mail', step: 'Step 2 · open latest invoice' },
   { name: 'maps.example', url: 'https://maps.example/search/tea+house+near+me', accent: '#e6c98a', kind: 'docs', step: 'Step 4 · copy address' },
 ];
-const tabs = [];          // in creation order
-let active = null, nextSite = 0;
+const tabs = [];
+let nextSite = 0;
 const base = { w: 0, h: 0 };
-const DOCK_SCALE = 0.2;
+const view = { x: 0, y: 0, scale: 1 };
+const scrub = { on: false, s: 0, x0: 0, s0: 0 };
+const DEPTH_SHOWN = 4, DEPTH_RISE = 30, DEPTH_SHRINK = 0.07;
 
 function pageHtml(site) {
   if (site.kind === 'shop') return `
@@ -289,183 +309,257 @@ function pageHtml(site) {
       <div class="line" style="width:88%"></div><div class="line" style="width:40%"></div></div>
     <div style="margin-top:16px"><span class="btn target">Copy token</span></div>`;
 }
-
 function createTab() {
   const site = SITES[nextSite++ % SITES.length];
   const el = document.createElement('div'); el.className = 'viewer'; el.style.setProperty('--accent', site.accent);
   el.innerHTML = `
     <div class="chrome"><div class="tab"><span class="fav"></span> ${site.name}</div><div class="url">${site.url}</div><div class="step">${site.step}</div></div>
-    <div class="page">${pageHtml(site)}</div>
-    <div class="lantern"><div class="name">${site.name}</div><div class="st">${site.step}</div></div>`;
+    <div class="page">${pageHtml(site)}</div>`;
   viewersEl.appendChild(el);
-  const tab = { el, site, state: 'summoning', settledTotal: 0, settled: 0 };
-  el.addEventListener('click', e => {
-    if (tab.state === 'docked') switchTo(tab);
-    else if (tab === active && tab.state === 'held') clickTell(e.clientX, e.clientY);
-  });
-  tabs.push(tab);
+  const tab = { el, site, state: 'summoning', settledTotal: 0, settled: 0, id: 'tab-' + (nextSite) };
+  el.addEventListener('click', e => { if (tab === active() && tab.state === 'held') clickTell(e.clientX, e.clientY); });
   return tab;
 }
-const activeTab = () => active;
-const dockedTabs = () => tabs.filter(t => t.state === 'docked');
+const active = () => tabs[0] || null;
 
-// Where each tab should be. The active frame is centered; docked tabs float
-// in a row on the pool. Called on every change; CSS transitions do the move.
-function layoutTabs(immediate) {
-  // The active frame stays above the pool so the lantern row is never covered.
-  base.w = Math.min(W * 0.72, 1120, H * 0.60 * 1.6); base.h = base.w * 10 / 16;
-  const docked = dockedTabs();
-  const slotW = base.w * DOCK_SCALE, gap = 18, total = docked.length * slotW + (docked.length - 1) * gap;
-  let di = 0;
-  for (const t of tabs) {
-    t.el.style.width = base.w + 'px'; t.el.style.height = base.h + 'px';
-    if (immediate) t.el.style.transition = 'none';
-    if (t.state === 'docked') {
-      const x = (W - total) / 2 + di++ * (slotW + gap), y = H * 0.80 - base.h * DOCK_SCALE / 2;
-      t.rect = { x, y, w: slotW, h: base.h * DOCK_SCALE };
-      t.el.style.transform = `translate(${x}px, ${y}px) scale(${DOCK_SCALE})`;
-    } else if (t.state === 'sinking') {
-      t.el.style.transform = `translate(${t.rect.x}px, ${t.rect.y + 60}px) scale(${t.rect.w / base.w})`;
-    } else {
-      const x = (W - base.w) / 2, y = H * 0.41 - base.h / 2;
-      t.rect = { x, y, w: base.w, h: base.h };
-      t.el.style.transform = `translate(${x}px, ${y}px) scale(1)`;
-    }
-    if (immediate) { void t.el.offsetHeight; t.el.style.transition = ''; }
-  }
+// The active frame's rectangle: base size, scaled and offset by the hand.
+function frontRect() {
+  const w = base.w * view.scale, h = base.h * view.scale;
+  return { x: W / 2 + view.x - w / 2, y: H * 0.44 + view.y - h / 2, w, h };
 }
-// The rectangle petals should target for a tab: where it is going, not where
-// it is mid-transition.
-const frameRect = t => t.rect;
+// Where a card at continuous depth d sits. Depth 0 is the front; deeper cards
+// rise behind it and shrink. Negative depth is a card being riffled off the
+// front: it slides out to the side and thins.
+function cardPlacement(d) {
+  const f = frontRect();
+  if (d >= 0) {
+    const s = Math.max(0.5, 1 - DEPTH_SHRINK * d), w = f.w * s, h = f.h * s;
+    return { x: f.x + (f.w - w) / 2, y: f.y - DEPTH_RISE * view.scale * d, w, h, s: view.scale * s,
+      opacity: Math.max(0.25, 1 - 0.18 * d), bright: Math.max(0.55, 1 - 0.12 * d), z: 100 - Math.round(d * 10) };
+  }
+  const k = -d, s = Math.max(0.6, 1 - 0.08 * k), w = f.w * s, h = f.h * s;
+  return { x: f.x + (f.w - w) / 2 - f.w * 0.62 * k, y: f.y + 24 * k, w, h, s: view.scale * s,
+    opacity: Math.max(0, 1 - 0.7 * k), bright: 1, z: 100 + Math.round(k * 10) };
+}
+function layoutDeck(immediate) {
+  base.w = Math.min(W * 0.72, 1120, H * 0.60 * 1.6); base.h = base.w * 10 / 16;
+  const n = tabs.length;
+  tabs.forEach((t, i) => {
+    let d = i - scrub.s;
+    if (n > 1 && d < -0.5) d += n;        // riffled past the front: wraps to the back
+    const p = cardPlacement(d);
+    t.rect = p;
+    t.el.style.width = base.w + 'px'; t.el.style.height = base.h + 'px';
+    t.el.classList.toggle('direct', !!immediate);
+    t.el.style.transform = `translate(${p.x}px, ${p.y}px) scale(${p.s})`;
+    t.el.style.zIndex = p.z; t.el.style.filter = `brightness(${p.bright})`;
+    if (t.state !== 'summoning' && t.state !== 'sinking') t.el.style.opacity = i > DEPTH_SHOWN ? 0 : p.opacity;
+    t.el.classList.toggle('active', i === 0);
+  });
+}
+// Border petals live on the active frame in perimeter coordinates, so the
+// outline follows the frame wherever a hand takes it.
+function anchor(p) { const f = frontRect(), q = perimeterPoint(f, p.u); return { x: q.x + p.jx, y: q.y + p.jy }; }
 
-// ── Summon: a new tab, made of petals from the canopy.
+// ── Actions ────────────────────────────────────────────────────────────────
+// A tab still forming when the next command lands is finished on the spot, so
+// no intent is ever dropped.
+function settleNow(tab) { if (tab && tab.state === 'summoning') { tab.state = 'held'; tab.el.style.opacity = 1; } }
 function summon() {
-  const cur = activeTab();
-  if (cur && cur.state === 'summoning') return;
-  if (cur) dock(cur);
-  const tab = createTab(); active = tab;
-  tab.el.classList.add('active'); layoutTabs();
-  const f = frameRect(tab), n = settings.count, edgeShare = 0.55;
+  const cur = active();
+  if (cur) { settleNow(cur); releaseBorder(cur); }
+  const tab = createTab(); tabs.unshift(tab); layoutDeck();
+  const f = frontRect(), n = settings.count, edgeShare = 0.55;
   blow(W / 2, H * 0.24, f.x + f.w / 2, f.y + f.h / 2, 150);
   for (let i = 0; i < n; i++) {
-    const s = canopyPoint(), p = makePetal(s.x, s.y);
-    const onEdge = i < n * edgeShare;
+    const s = canopyPoint(), p = makePetal(s.x, s.y), onEdge = i < n * edgeShare;
     let t;
-    if (onEdge) {
-      const u = i / (n * edgeShare); t = perimeterPoint(f, (u + 0.13) % 1);
-      t.x += rand(-9, 9); t.y += rand(-9, 9); p.delay = rand(0, 0.32);
-    } else {
-      t = { x: rand(f.x + 26, f.x + f.w - 26), y: rand(f.y + 26, f.y + f.h - 26) };
-      p.delay = rand(0.25, 0.7); tab.settledTotal++;
-    }
+    if (onEdge) { p.u = (i / (n * edgeShare) + 0.13) % 1; p.jx = rand(-9, 9); p.jy = rand(-9, 9); t = anchor(p); p.delay = rand(0, 0.32); }
+    else { t = { x: rand(f.x + 26, f.x + f.w - 26), y: rand(f.y + 26, f.y + f.h - 26) }; p.delay = rand(0.25, 0.7); tab.settledTotal++; }
     startFlight(p, s, t, settings.duration * rand(0.8, 1.25));
-    p.edge = onEdge; p.tab = tab; p.keep = onEdge && Math.random() < 0.72;
-    petals.push(p);
+    p.edge = onEdge; p.tab = tab; p.keep = onEdge && Math.random() < 0.72; petals.push(p);
   }
+  emit('tab.summoned', { tab: tab.id, site: tab.site.name }); emit('deck.changed', deckInfo());
 }
-function startFlight(p, s, t, dur) {
-  p.mode = 'gather'; p.born = now; p.sx = s.x; p.sy = s.y; p.tx = t.x; p.ty = t.y; p.dur = dur; p.isClick = false;
-  const dx = t.x - s.x, dy = t.y - s.y, len = Math.hypot(dx, dy) || 1, side = Math.random() < 0.5 ? -1 : 1;
-  const arc = len * rand(0.15, 0.42) * settings.swirl * side;
-  p.cx = (s.x + t.x) / 2 + (-dy / len) * arc; p.cy = (s.y + t.y) / 2 + (dx / len) * arc + len * 0.08; // a little sag
-  p.nx = -dy / len; p.ny = dx / len;                  // flutter axis: across the line of flight
-  p.wobA = rand(6, 16) * settings.swirl; p.wobF = rand(5, 9);
-  p.ox = 0; p.oy = 0;                                 // accumulated wind drift
-  p.delay = p.delay || 0;
-}
-
-// Dock the active tab: it drifts back to the pool while its border lets go.
-function dock(tab) {
-  tab.state = 'docked';
-  tab.el.classList.remove('active'); tab.el.classList.add('docked');
-  layoutTabs(); carryBorder(tab, frameRect(tab));
-}
-// A docked frame takes some of its outline with it: a share of the border
-// petals fly to the lantern and settle there; the rest let go and dissolve.
-function carryBorder(tab, to) {
-  let i = 0;
-  for (const p of petals) if (p.tab === tab && (p.mode === 'border' || p.mode === 'gather' || p.mode === 'settle')) {
-    if (p.mode === 'gather' && !p.edge) tab.settled++;
-    if (i++ % 6 === 0) {
-      const t = perimeterPoint(to, Math.random()); t.x += rand(-3, 3); t.y += rand(-3, 3);
-      startFlight(p, { x: p.x, y: p.y }, t, rand(0.7, 1.0)); p.edge = true; p.keep = true;
-    } else { startFall(p, rand(0, 0.25)); p.die = now + rand(0.7, 1.4); }
-  }
-}
-// Switch: a gust. The active frame docks, the chosen lantern rises and gets a fresh border.
-function switchTo(tab) {
-  if (!tab || tab.state !== 'docked') return;
-  const cur = activeTab(); if (cur && cur.state === 'summoning') return;
-  if (cur) dock(cur);
-  active = tab; tab.state = 'held';
-  tab.el.classList.remove('docked'); tab.el.classList.add('active'); tab.el.style.opacity = 1;
-  const from = tab.rect; layoutTabs(); const f = frameRect(tab);
-  blow(from.x + from.w / 2, from.y, f.x + f.w / 2, f.y + f.h / 2, 90);
-  // A lighter outline forms from the canopy as the tab arrives, with a few
-  // petals riding up from the lantern itself.
-  const n = settings.calm ? 60 : 150;
+// A lighter outline for a card that has just come to the front.
+function outline(tab, share) {
+  const f = frontRect(), n = Math.round((settings.calm ? 60 : 150) * (share || 1));
   for (let i = 0; i < n; i++) {
-    const fromLantern = i % 4 === 0;
-    const s = fromLantern ? { x: rand(from.x, from.x + from.w), y: rand(from.y, from.y + from.h) } : canopyPoint();
-    const p = makePetal(s.x, s.y); const t = perimeterPoint(f, (i / n + 0.13) % 1); t.x += rand(-9, 9); t.y += rand(-9, 9);
-    p.delay = rand(0.05, 0.5); startFlight(p, s, t, settings.duration * rand(0.6, 0.9));
+    const s = canopyPoint(), p = makePetal(s.x, s.y);
+    p.u = (i / n + 0.13) % 1; p.jx = rand(-9, 9); p.jy = rand(-9, 9);
+    p.delay = rand(0.05, 0.5); startFlight(p, s, anchor(p), settings.duration * rand(0.6, 0.9));
     p.edge = true; p.tab = tab; p.keep = Math.random() < 0.72; petals.push(p);
   }
-  if (thinking) setThinking(false);
 }
-function cycle() { const d = dockedTabs(); if (d.length) switchTo(d[d.length - 1]); }
-
-// Close the active tab: the frame comes apart and sinks into the reflection.
-function closeActive() {
-  const tab = activeTab(); if (!tab) return;
+function releaseBorder(tab) {
+  for (const p of petals) if (p.tab === tab && (p.mode === 'border' || p.mode === 'gather' || p.mode === 'settle')) {
+    if (p.mode === 'gather' && !p.edge) tab.settled++;
+    startFall(p, rand(0, 0.35)); p.fall *= 1.6; p.die = now + rand(1.8, 3.0);
+  }
+}
+// Rotate the deck by k cards (positive: the next card comes to the front).
+function rotateDeck(k) {
+  const n = tabs.length; if (n < 2) return;
+  k = ((k % n) + n) % n; if (!k) { scrub.s = 0; layoutDeck(); return; }
+  const cur = active(); settleNow(cur);
+  releaseBorder(cur);
+  const moved = tabs.splice(0, k); tabs.push(...moved); scrub.s = 0;
+  for (const t of tabs) t.el.classList.remove('direct');
+  layoutDeck();
+  const f = frontRect(); blow(f.x + f.w / 2, f.y + f.h, f.x + f.w / 2, f.y, 70);
   if (thinking) setThinking(false);
-  const f = frameRect(tab); releaseBorder(tab);
+  outline(active(), 0.8);
+  emit('tab.activated', { tab: active().id, site: active().site.name }); emit('deck.changed', deckInfo());
+}
+function sendBack() { rotateDeck(1); }
+function closeActive() {
+  const tab = active(); if (!tab) return;
+  settleNow(tab); if (thinking) setThinking(false);
+  const f = frontRect(); releaseBorder(tab);
   const n = settings.calm ? 90 : 220;
   for (let i = 0; i < n; i++) {
     const p = makePetal(rand(f.x, f.x + f.w), rand(f.y, f.y + f.h));
     p.alpha = 0; p.fadeIn = true; startFall(p, rand(0, 0.5)); p.fall *= 1.8; p.die = now + rand(1.6, 2.8); petals.push(p);
   }
-  tab.state = 'sinking'; tab.el.classList.remove('active'); tab.el.classList.add('sinking'); layoutTabs();
-  setTimeout(() => { tab.el.remove(); const i = tabs.indexOf(tab); if (i >= 0) tabs.splice(i, 1); layoutTabs(); }, 1100);
-  active = null;
-  // The most recent lantern rises to take its place.
-  const d = dockedTabs(); if (d.length) setTimeout(() => { if (!active) switchTo(d[d.length - 1]); }, 350);
+  tabs.shift(); tab.state = 'sinking'; tab.el.classList.remove('active', 'direct'); tab.el.classList.add('sinking');
+  tab.el.style.transform = `translate(${f.x}px, ${f.y + 70}px) scale(${view.scale})`;
+  setTimeout(() => tab.el.remove(), 1100);
+  emit('tab.closed', { tab: tab.id, site: tab.site.name });
+  scrub.s = 0; layoutDeck();
+  if (active()) { setTimeout(() => outline(active(), 0.8), 250); emit('tab.activated', { tab: active().id, site: active().site.name }); }
+  emit('deck.changed', deckInfo());
 }
-function releaseBorder(tab) {
-  for (const p of petals) if (p.tab === tab && (p.mode === 'border' || p.mode === 'gather' || p.mode === 'settle')) {
-    if (p.mode === 'gather' && !p.edge) tab.settled++;   // count it so a mid-summon tab still reveals
-    startFall(p, rand(0, 0.35)); p.fall *= 1.6; p.die = now + rand(1.8, 3.0);
-  }
+function moveBy(dx, dy) {
+  const f = frontRect();
+  view.x = clamp(view.x + dx, -W / 2 + f.w * 0.25, W / 2 - f.w * 0.25);
+  view.y = clamp(view.y + dy, -H * 0.44 + f.h * 0.3, H * 0.9 - H * 0.44 - f.h * 0.3);
+  layoutDeck(true); emit('deck.moved', { x: view.x, y: view.y });
 }
-function startFall(p, delay) {
-  p.mode = 'fall'; p.fallAt = now + delay; p.baseRot = p.rot; p.rippled = false;
-  p.vx = rand(-20, 20); p.vy = rand(-30, 5);
-  if (Math.random() < 0.2) p.vy = rand(-90, -40);   // caught by the gust: a brief lift before it falls
+function scaleTo(s) {
+  view.scale = clamp(s, 0.45, Math.min(1.6, (W * 0.96) / base.w, (H * 0.86) / base.h));
+  layoutDeck(true); emit('deck.scaled', { scale: view.scale });
 }
-
-// A click tell: one petal drops from the top edge onto the point and rings it.
 function clickTell(x, y) {
-  const tab = activeTab(); if (!tab) return; const f = frameRect(tab);
+  const tab = active(); if (!tab) return; const f = frontRect();
   const s = { x: x + rand(-40, 40), y: f.y - 10 }, p = makePetal(s.x, s.y);
   startFlight(p, s, { x, y }, 0.7); p.wobA *= 0.5; p.edge = false; p.keep = false; p.isClick = true; p.tab = tab; petals.push(p);
 }
-
-// Thinking: a loose orbit around the active frame, breathing with the wind.
 let thinking = false;
 function setThinking(on) {
-  const tab = activeTab(); if (on && !tab) return;
+  const tab = active(); if (on && !tab) return;
   thinking = on; setPressed('b-think', on);
   if (on) {
-    const f = frameRect(tab), n = settings.calm ? 14 : 36;
+    const f = frontRect(), n = settings.calm ? 14 : 36;
     for (let i = 0; i < n; i++) {
       const p = makePetal(f.x + f.w / 2, f.y + f.h / 2);
       p.mode = 'orbit'; p.tab = tab; p.ang = (i / n) * Math.PI * 2; p.angV = rand(0.3, 0.6) * (Math.random() < .5 ? -1 : 1);
-      p.rx = f.w / 2 + rand(64, 120); p.ry = f.h / 2 + rand(54, 100); p.alpha = 0; p.fadeIn = true; petals.push(p);
+      p.rx = rand(64, 120); p.ry = rand(54, 100); p.alpha = 0; p.fadeIn = true; petals.push(p);
     }
   } else for (const p of petals) if (p.mode === 'orbit') startFall(p, rand(0, 0.3));
 }
 
-// ── Update
+// ── Hands: a petal cursor per hand, and the continuous gestures ────────────
+const hands = new Map();
+function handSeen(id, x, y, pinch) {
+  let h = hands.get(id);
+  if (!h) {
+    h = { x, y, pinch: 0, cursor: [] }; hands.set(id, h);
+    const n = settings.calm ? 4 : 7;
+    for (let i = 0; i < n; i++) {
+      const p = makePetal(x, y); p.mode = 'cursor'; p.hand = h; p.ang = (i / n) * Math.PI * 2; p.angV = rand(2.2, 3.4);
+      p.size *= 0.7; p.alpha = 0; p.fadeIn = true; h.cursor.push(p); petals.push(p);
+    }
+  }
+  h.x = x; h.y = y; h.pinch = clamp(pinch || 0, 0, 1);
+}
+function handLost(id) {
+  const h = hands.get(id); if (!h) return;
+  for (const p of h.cursor) { startFall(p, rand(0, 0.2)); p.die = now + rand(0.5, 1.0); }
+  if (h.grab) grabEnd(id, h.x, h.y, 0, 0);
+  if (h.scrub) scrubEnd(id, 0);
+  hands.delete(id);
+}
+function grabStart(id, x, y) {
+  const h = hands.get(id) || (handSeen(id, x, y, 1), hands.get(id));
+  const f = frontRect(), tab = active();
+  if (!tab || x < f.x - 24 || x > f.x + f.w + 24 || y < f.y - 24 || y > f.y + f.h + 24) { emit('grab.rejected', { id, x, y }); return; }
+  h.grab = { x, y, t: now }; tab.el.classList.add('direct');
+}
+function grabMove(id, x, y) {
+  const h = hands.get(id); if (!h || !h.grab) { if (h) { h.x = x; h.y = y; } return; }
+  h.x = x; h.y = y; moveBy(x - h.grab.x, y - h.grab.y); h.grab.x = x; h.grab.y = y;
+}
+// Letting go decides by velocity: a sideways throw riffles, a throw down at
+// the pool closes, anything else is a drop. Thresholds are in px/s.
+const config = { throwSpeed: 900, flickSpeed: 900, scrubCardsPerSecond: 2500 };   // px/s; tune from the gesture side
+function grabEnd(id, x, y, vx, vy) {
+  const h = hands.get(id); if (!h || !h.grab) return;
+  h.grab = null; const tab = active(); if (tab) tab.el.classList.remove('direct');
+  const f = frontRect();
+  if (vy > config.throwSpeed && vy > Math.abs(vx) * 1.2 || f.y + f.h / 2 > waterline()) { closeActive(); return; }
+  if (Math.abs(vx) > config.flickSpeed && Math.abs(vx) > Math.abs(vy) * 1.2) { rotateDeck(vx > 0 ? -1 : 1); return; }
+  const r = frontRect(); for (let i = 0; i < 6; i++) { const p = makePetal(rand(r.x, r.x + r.w), r.y + r.h); startFall(p, 0); p.die = now + 1; petals.push(p); }
+}
+function scrubStart(id, x) {
+  const h = hands.get(id) || (handSeen(id, x, H / 2, 1), hands.get(id));
+  if (tabs.length < 2) return;
+  h.scrub = true; scrub.on = true; scrub.x0 = x; scrub.s0 = scrub.s;
+  for (const t of tabs) t.el.classList.add('direct');
+}
+function scrubMove(id, x) {
+  const h = hands.get(id); if (!h || !h.scrub) return;
+  h.x = x; scrub.s = scrub.s0 + (scrub.x0 - x) / (base.w * view.scale * 0.45); layoutDeck(true);
+}
+function scrubEnd(id, vx) {
+  const h = hands.get(id); if (!h || !h.scrub) return;
+  h.scrub = false; scrub.on = false;
+  let target = Math.round(scrub.s - vx / config.scrubCardsPerSecond);
+  rotateDeck(target);
+  if (!target) { for (const t of tabs) t.el.classList.remove('direct'); layoutDeck(); }
+}
+function stretchStart(id, distance) { const h = hands.get(id) || (handSeen(id, W / 2, H / 2, 1), hands.get(id)); h.stretch = { d0: distance || 1, s0: view.scale }; }
+function stretchMove(id, distance) { const h = hands.get(id); if (!h || !h.stretch) return; scaleTo(h.stretch.s0 * (distance / h.stretch.d0)); }
+function stretchEnd(id) { const h = hands.get(id); if (h) h.stretch = null; }
+
+// ── The event surface ──────────────────────────────────────────────────────
+const listeners = new Map();
+function emit(name, data) {
+  log(`<b>${name}</b> ${data ? JSON.stringify(data) : ''}`);
+  for (const fn of listeners.get(name) || []) { try { fn(data); } catch (e) { console.error(e); } }
+}
+function deckInfo() { return { count: tabs.length, active: active() ? active().id : null, order: tabs.map(t => t.id) }; }
+const commands = {
+  'summon': () => summon(),
+  'next': () => rotateDeck(1),
+  'prev': () => rotateDeck(-1),
+  'back': () => sendBack(),
+  'close': () => closeActive(),
+  'click': d => d && clickTell(d.x, d.y),
+  'think': d => setThinking(d ? !!d.on : !thinking),
+  'scale': d => d && scaleTo(view.scale * d.factor),
+  'scale.to': d => d && scaleTo(d.scale),
+  'move': d => d && moveBy(d.dx || 0, d.dy || 0),
+  'hand': d => handSeen(d.id || 'hand', d.x, d.y, d.pinch),
+  'hand.lost': d => handLost(d ? d.id || 'hand' : 'hand'),
+  'grab': d => grabStart(d.id || 'hand', d.x, d.y),
+  'grab.move': d => grabMove(d.id || 'hand', d.x, d.y),
+  'grab.end': d => grabEnd(d.id || 'hand', d.x, d.y, d.vx || 0, d.vy || 0),
+  'scrub': d => scrubStart(d.id || 'hand', d.x),
+  'scrub.move': d => scrubMove(d.id || 'hand', d.x),
+  'scrub.end': d => scrubEnd(d.id || 'hand', d.vx || 0),
+  'stretch': d => stretchStart(d.id || 'hands', d.distance),
+  'stretch.move': d => stretchMove(d.id || 'hands', d.distance),
+  'stretch.end': d => stretchEnd(d ? d.id || 'hands' : 'hands'),
+};
+window.MahoragaTabs = {
+  send(name, data) { const c = commands[name]; if (!c) { console.warn('MahoragaTabs: unknown intent', name); return false; } c(data); return true; },
+  on(name, fn) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn); return () => listeners.get(name).delete(fn); },
+  intents: Object.keys(commands),
+  config,
+  get state() { return { ...deckInfo(), view: { ...view }, scrub: scrub.s, thinking }; },
+};
+
+// ── Update ─────────────────────────────────────────────────────────────────
 function update(dt) {
   gust.x *= Math.pow(0.1, dt); gust.y *= Math.pow(0.1, dt);
   let border = 0;
@@ -482,38 +576,31 @@ function update(dt) {
     else if (p.mode === 'gather') {
       const t = clamp((now - p.born - p.delay) / p.dur, 0, 1);
       if (t <= 0) continue;
-      const e = flightEase(t), u = 1 - e;
-      // Wind drift accumulates while airborne and is reeled in as the petal arrives.
-      const w = wind(p.x, p.y, now); p.ox += w.x * dt; p.oy += w.y * dt;
-      // Flutter across the line of flight, strongest mid-flight, gone at both ends.
+      if (p.edge && p.u !== undefined) { const a = anchor(p); p.tx = a.x; p.ty = a.y; }   // the frame may have moved
+      const e = flightEase(t), u = 1 - e, w = wind(p.x, p.y, now);
+      p.ox += w.x * dt; p.oy += w.y * dt;
       const fl = Math.sin(p.phase + t * p.wobF * Math.PI) * p.wobA * Math.sin(Math.PI * t);
       p.x = u * u * p.sx + 2 * u * e * p.cx + e * e * p.tx + p.nx * fl + p.ox * u;
       p.y = u * u * p.sy + 2 * u * e * p.cy + e * e * p.ty + p.ny * fl + p.oy * u;
-      // Tilt into the direction of travel, tumble faster when moving faster.
       const vx = (p.x - p.px) / dt, vy = (p.y - p.py) / dt, speed = Math.hypot(vx, vy);
       if (speed > 8) p.rot = lerpAngle(p.rot, Math.atan2(vy, vx) + Math.PI / 2 + p.spin * 0.4, 1 - Math.pow(0.02, dt));
       p.flip += (1.2 + speed * 0.012) * dt;
-      if (t >= 1) {
-        p.mode = 'settle'; p.settleAt = now; p.svx = vx; p.svy = vy; p.baseRot = p.rot;
-        const sp = Math.hypot(vx, vy) || 1; p.svx = vx / sp; p.svy = vy / sp;
-      }
+      if (t >= 1) { p.mode = 'settle'; p.settleAt = now; p.baseRot = p.rot; const sp = speed || 1; p.svx = vx / sp; p.svy = vy / sp; }
     }
     else if (p.mode === 'settle') {
-      // Overshoot along the last heading and ease back: the landing has weight.
       const s = clamp((now - p.settleAt) / 0.42, 0, 1), k = Math.sin(s * Math.PI * 1.5) * (1 - s) * 7;
+      if (p.edge && p.u !== undefined) { const a = anchor(p); p.tx = a.x; p.ty = a.y; }
       p.x = p.tx + p.svx * k; p.y = p.ty + p.svy * k;
-      p.rot = lerpAngle(p.rot, p.baseRot + rand(-0.02, 0.02), 1 - Math.pow(0.1, dt));
       if (s >= 1) {
         if (p.isClick) { ripples.push({ x: p.tx, y: p.ty, born: now }); ripples.push({ x: p.tx, y: p.ty, born: now + 0.18 }); p.mode = 'fade'; }
-        else if (p.edge && p.keep) { p.mode = 'border'; p.hx = p.tx; p.hy = p.ty; p.hoverPhase = rand(0, Math.PI * 2); }
+        else if (p.edge && p.keep) { p.mode = 'border'; p.hoverPhase = rand(0, Math.PI * 2); }
         else { p.mode = 'fade'; if (!p.edge && p.tab) p.tab.settled++; }
       }
     }
     else if (p.mode === 'border') {
       border++;
-      // The outline rides the wind field, so a breath moves neighbours together.
-      const w = wind(p.hx, p.hy, now), k = now * 1.3 + p.hoverPhase;
-      p.x = p.hx + w.x * 0.16 + Math.sin(k) * 1.5; p.y = p.hy + w.y * 0.16 + Math.cos(k * 0.8) * 1.5;
+      const a = anchor(p), w = wind(a.x, a.y, now), k = now * 1.3 + p.hoverPhase;
+      p.x = a.x + w.x * 0.16 + Math.sin(k) * 1.5; p.y = a.y + w.y * 0.16 + Math.cos(k * 0.8) * 1.5;
       p.rot = lerpAngle(p.rot, p.baseRot + w.x * 0.012, 1 - Math.pow(0.05, dt)); p.flip += 0.8 * dt;
       if (!settings.calm && Math.random() < dt * 0.02) { startFall(p, 0); p.rippled = true; }
     }
@@ -527,24 +614,31 @@ function update(dt) {
       }
     }
     else if (p.mode === 'orbit') {
-      const f = p.tab && p.tab.rect; if (!f) { petals.splice(i, 1); continue; }
+      const f = frontRect();
       p.ang += p.angV * (1 + 0.3 * Math.sin(now * 0.7 + p.phase)) * dt;
       const w = wind(p.x, p.y, now);
-      p.x = f.x + f.w / 2 + Math.cos(p.ang) * p.rx + w.x * 0.3; p.y = f.y + f.h / 2 + Math.sin(p.ang) * p.ry + w.y * 0.3;
+      p.x = f.x + f.w / 2 + Math.cos(p.ang) * (f.w / 2 + p.rx) + w.x * 0.3; p.y = f.y + f.h / 2 + Math.sin(p.ang) * (f.h / 2 + p.ry) + w.y * 0.3;
       p.rot = lerpAngle(p.rot, p.ang + (p.angV > 0 ? Math.PI : 0), 1 - Math.pow(0.05, dt)); p.flip += 1.4 * dt;
+    }
+    else if (p.mode === 'cursor') {
+      // Orbit the hand; the orbit tightens as the pinch closes.
+      const h = p.hand, r = 10 + (1 - h.pinch) * 16;
+      p.ang += p.angV * dt;
+      p.x += ((h.x + Math.cos(p.ang) * r) - p.x) * (1 - Math.pow(0.001, dt));
+      p.y += ((h.y + Math.sin(p.ang * 1.3) * r * 0.7) - p.y) * (1 - Math.pow(0.001, dt));
+      p.rot += p.angV * 0.5 * dt; p.flip += 2 * dt;
     }
     else if (p.mode === 'fade') { p.alpha -= dt * 2.2; if (p.alpha <= 0) petals.splice(i, 1); }
   }
   for (let i = ripples.length - 1; i >= 0; i--) if (now - ripples[i].born > 1.1) ripples.splice(i, 1);
 
-  // Reveal each summoning tab as its interior settles: it is made of the petals.
   for (const t of tabs) if (t.state === 'summoning') {
     const frac = t.settledTotal ? t.settled / t.settledTotal : 1;
     t.el.style.opacity = easeOutQuart(clamp((frac - 0.15) / 0.7, 0, 1)).toFixed(3);
-    if (frac >= 0.98) { t.state = 'held'; t.el.style.opacity = 1; }
+    if (frac >= 0.98) { t.state = 'held'; layoutDeck(); }
   }
-  const a = activeTab();
-  statEl.textContent = `${petals.length} petals · ${border} on frame · ${tabs.length} tab${tabs.length === 1 ? '' : 's'}${a ? ' · ' + a.state : ''}`;
+  const a = active();
+  statEl.textContent = `${petals.length} petals · ${border} on frame · ${tabs.length} tab${tabs.length === 1 ? '' : 's'}${a ? ' · ' + a.site.name : ''} · ×${view.scale.toFixed(2)}`;
 }
 
 // ── Draw
@@ -565,7 +659,6 @@ function draw() {
     ctx.drawImage(s, -sc / 2, -sc / 2, sc, sc); ctx.restore();
   }
 }
-
 let last = performance.now();
 function frame(ts) {
   const dt = Math.min((ts - last) / 1000, 0.05); last = ts; now = ts / 1000;
@@ -575,31 +668,76 @@ resize();
 for (let i = 0; i < settings.ambient; i++) spawnAmbient(true);
 requestAnimationFrame(frame);
 
-// ── Controls
+// ── Event log (last few outcomes, so you can see what to attach to) ────────
+const logLines = [];
+function log(html) {
+  logLines.push(`<span class="t">${now.toFixed(1)}</span> ${html}`); if (logLines.length > 7) logLines.shift();
+  logEl.innerHTML = logLines.join('<br>') + `<div class="hint">MahoragaTabs.send(intent, data) · .on(outcome, fn)<br>mouse: move=hand · drag=grab · shift+drag=scrub · wheel=scale</div>`;
+}
+log('ready');
+
+// ── Controls: buttons, keys, and a virtual hand on the mouse ───────────────
 function setPressed(id, on) { document.getElementById(id).setAttribute('aria-pressed', String(on)); }
 function doClick() {
-  const tab = activeTab(); if (!tab || tab.state !== 'held') return;
+  const tab = active(); if (!tab || tab.state !== 'held') return;
   const b = tab.el.querySelector('.target').getBoundingClientRect();
-  clickTell(b.left + b.width / 2, b.top + b.height / 2);
-  const step = tab.el.querySelector('.step'); const was = step.textContent;
-  step.textContent = was + ' ✓'; setTimeout(() => step.textContent = was, 900);
+  MahoragaTabs.send('click', { x: b.left + b.width / 2, y: b.top + b.height / 2 });
+  const step = tab.el.querySelector('.step'), was = step.textContent; step.textContent = was + ' ✓'; setTimeout(() => step.textContent = was, 900);
 }
-document.getElementById('b-summon').onclick = summon;
-document.getElementById('b-switch').onclick = cycle;
-document.getElementById('b-close').onclick = closeActive;
-document.getElementById('b-click').onclick = doClick;
-document.getElementById('b-think').onclick = () => setThinking(!thinking);
-document.getElementById('b-calm').onclick = () => { settings.calm = !settings.calm; setPressed('b-calm', settings.calm); };
+document.querySelectorAll('.hud button').forEach(b => b.onclick = () => {
+  const c = b.dataset.cmd;
+  if (c === 'click') doClick();
+  else if (c === 'calm') { settings.calm = !settings.calm; setPressed('b-calm', settings.calm); }
+  else MahoragaTabs.send(c);
+});
 setPressed('b-calm', settings.calm);
 window.addEventListener('keydown', e => {
-  if (e.key === ' ') { e.preventDefault(); summon(); }
-  else if (e.key === 'Tab') { e.preventDefault(); cycle(); }
-  else if (e.key === 'Escape') closeActive();
+  if (e.key === ' ') { e.preventDefault(); MahoragaTabs.send('summon'); }
+  else if (e.key === 'ArrowRight') MahoragaTabs.send('next');
+  else if (e.key === 'ArrowLeft') MahoragaTabs.send('prev');
+  else if (e.key === 'Escape') MahoragaTabs.send('close');
+  else if (e.key === 'b' || e.key === 'B') MahoragaTabs.send('back');
   else if (e.key === 'c' || e.key === 'C') doClick();
-  else if (e.key === 't' || e.key === 'T') setThinking(!thinking);
+  else if (e.key === 't' || e.key === 'T') MahoragaTabs.send('think');
   else if (e.key === 'm' || e.key === 'M') document.getElementById('b-calm').click();
-  else if (e.key >= '1' && e.key <= '9') { const d = dockedTabs()[e.key - 1]; if (d) switchTo(d); }
+  else if (e.key === '+' || e.key === '=') MahoragaTabs.send('scale', { factor: 1.1 });
+  else if (e.key === '-' || e.key === '_') MahoragaTabs.send('scale', { factor: 1 / 1.1 });
 });
+// Virtual hand. The real gesture layer replaces this with camera landmarks
+// and sends the same intents.
+(() => {
+  const ID = 'mouse'; let down = null; const trail = [];
+  // Wall-clock timestamps: the animation clock only advances per frame, and a
+  // slow frame would make a fresh flick look stale.
+  const clock = () => performance.now() / 1000;
+  const velocity = () => {
+    // Speed over the last few samples; a hand that paused before letting go is a drop.
+    const pts = trail.slice(-6);
+    if (pts.length < 2 || clock() - pts[pts.length - 1].t > 0.3) return { vx: 0, vy: 0 };
+    const a = pts[0], b = pts[pts.length - 1], dt = Math.max(b.t - a.t, 0.016);
+    return { vx: (b.x - a.x) / dt, vy: (b.y - a.y) / dt };
+  };
+  window.addEventListener('pointermove', e => {
+    trail.push({ x: e.clientX, y: e.clientY, t: clock() }); if (trail.length > 12) trail.shift();
+    if (down === 'scrub') MahoragaTabs.send('scrub.move', { id: ID, x: e.clientX });
+    else if (down === 'grab') MahoragaTabs.send('grab.move', { id: ID, x: e.clientX, y: e.clientY });
+    else MahoragaTabs.send('hand', { id: ID, x: e.clientX, y: e.clientY, pinch: 0 });
+  });
+  window.addEventListener('pointerdown', e => {
+    if (e.target.closest('.hud')) return;
+    MahoragaTabs.send('hand', { id: ID, x: e.clientX, y: e.clientY, pinch: 1 });
+    if (e.shiftKey) { down = 'scrub'; MahoragaTabs.send('scrub', { id: ID, x: e.clientX }); }
+    else { down = 'grab'; MahoragaTabs.send('grab', { id: ID, x: e.clientX, y: e.clientY }); }
+  });
+  window.addEventListener('pointerup', e => {
+    const v = velocity();
+    if (down === 'scrub') MahoragaTabs.send('scrub.end', { id: ID, vx: v.vx });
+    else if (down === 'grab') MahoragaTabs.send('grab.end', { id: ID, x: e.clientX, y: e.clientY, vx: v.vx, vy: v.vy });
+    down = null; MahoragaTabs.send('hand', { id: ID, x: e.clientX, y: e.clientY, pinch: 0 });
+  });
+  window.addEventListener('wheel', e => { e.preventDefault(); MahoragaTabs.send('scale', { factor: Math.exp(-e.deltaY * 0.0012) }); }, { passive: false });
+  document.addEventListener('mouseleave', () => MahoragaTabs.send('hand.lost', { id: ID }));
+})();
 </script>
 </body>
 </html>
