@@ -184,6 +184,7 @@ async def run_task_async(task: str, settings: Settings | None = None) -> str | N
         sensitive_data=sensitive,
         **hooks["agent"],
     )
+    live.feed.attach(session.id, agent)
     watcher = asyncio.create_task(
         live.watch(session.id, lambda: getattr(agent, "browser_session", None))
     )
