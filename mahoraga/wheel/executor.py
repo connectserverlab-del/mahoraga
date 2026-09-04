@@ -78,6 +78,7 @@ class WorkflowExecutor:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or Settings()
         self._browser = None  # lazily created BrowserSession
+        self._session = None  # the live-feed session while run() is active
 
     async def _ensure_browser(self):
         if self._browser is None:
@@ -96,14 +97,27 @@ class WorkflowExecutor:
             self._browser = None
 
     async def run(self, workflow: Workflow) -> ExecutionResult:
+        import asyncio
+
+        from mahoraga import live
+
         context: dict = {}
         results: list[NodeResult] = []
         last_output: Any = None
         overall_ok = True
+        failure: str | None = None
 
+        # The console follows a replay the same way it follows a live agent:
+        # one session, one step per node, frames from the shared browser.
+        self._session = live.feed.start(workflow.name or workflow.id, self.settings.provider, self.settings.model)
+        watcher = asyncio.create_task(live.watch(self._session.id, lambda: self._browser))
         try:
-            for node in workflow.execution_order():
+            for n, node in enumerate(workflow.execution_order(), start=1):
                 params = _render(node.params, context)
+                live.feed.step(
+                    self._session.id, n, params.get("task") or params.get("url") or node.type,
+                    [{"name": node.type, "kind": live.action_kind(node.type), "url": params.get("url")}],
+                )
                 try:
                     output = await self._run_node(node, params, context)
                     context[node.id] = output
@@ -111,13 +125,17 @@ class WorkflowExecutor:
                     results.append(NodeResult(node.id, node.type, True, output))
                 except Exception as exc:  # noqa: BLE001 — report, don't crash
                     overall_ok = False
-                    results.append(
-                        NodeResult(node.id, node.type, False, error=f"{type(exc).__name__}: {exc}")
-                    )
+                    failure = f"{type(exc).__name__}: {exc}"
+                    results.append(NodeResult(node.id, node.type, False, error=failure))
                     logger.warning("Node %s (%s) failed: %s", node.id, node.type, exc)
                     break  # stop the chain on first failure
         finally:
+            watcher.cancel()
             await self._close_browser()
+            if failure:
+                live.feed.fail(self._session.id, failure)
+            else:
+                live.feed.finish(self._session.id, last_output if isinstance(last_output, str) else None)
 
         return ExecutionResult(ok=overall_ok, nodes=results, result=last_output)
 
@@ -156,6 +174,10 @@ class WorkflowExecutor:
             raise ValueError("navigate node requires a 'url'")
         browser = await self._ensure_browser()
         await browser.new_page(url)
+        if self._session is not None:
+            from mahoraga import live
+
+            await live.capture(self._session.id, browser)
         return {"url": url}
 
     async def _node_extract(self, params: dict, context: dict) -> Any:
@@ -175,13 +197,17 @@ class WorkflowExecutor:
 
         from mahoraga.engine import build_llm
 
+        from mahoraga import live
+
         settings = self.settings.resolve()
         browser = await self._ensure_browser()
+        hooks = live.hooks(self._session.id) if self._session else {"agent": {}, "run": {}}
         agent = Agent(
             task=task,
             llm=build_llm(settings),
             browser_session=browser,
             use_vision=settings.use_vision,
+            **hooks["agent"],
         )
-        history = await agent.run(max_steps=settings.max_steps)
+        history = await agent.run(max_steps=settings.max_steps, **hooks["run"])
         return history.final_result()

@@ -1,0 +1,1752 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mahoraga · petal summon prototype</title>
+<link rel="icon" href="/assets/logo.png" />
+<style>
+  @font-face {
+    font-family: 'Inter'; font-style: normal; font-weight: 100 900; font-display: swap;
+    src: url('/assets/inter.woff2') format('woff2');
+  }
+  :root {
+    --font: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --glass: rgba(255,255,255,.62); --glass-line: rgba(255,255,255,.75); --glass-ink: #4a4058;
+    --rose: #e8a3bb; --gold: #e6c98a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #e9e0f2; }
+  body { font: 14px/1.5 var(--font); color: var(--glass-ink); -webkit-font-smoothing: antialiased; }
+
+  /* ── The domain: the same idle sakura clip the console uses ─────────────── */
+  .domain { position: fixed; inset: 0; z-index: 0; overflow: hidden; }
+  .domain video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+  /* ── Petal layer: one 2D canvas above the scene ─────────────────────────── */
+  /* Above every viewer (cards carry z-index up to ~100 for deck order), below the HUD. */
+  #petals { position: fixed; inset: 0; z-index: 200; pointer-events: none; }
+
+  /* ── Viewers. Each tab is one of these, laid out at full size at the origin
+        and placed with a transform. The deck is the same elements at
+        different depths, so riffling is just retargeting transforms. ─────── */
+  .viewer { position: fixed; z-index: 2; left: 0; top: 0; transform-origin: 0 0; opacity: 0;
+    border-radius: 18px; overflow: hidden; pointer-events: none;
+    background: rgba(24, 18, 30, .58);
+    box-shadow: 0 30px 80px rgba(60, 30, 70, .35), inset 0 0 0 1px rgba(255,255,255,.18);
+    backdrop-filter: blur(6px) saturate(120%); -webkit-backdrop-filter: blur(6px) saturate(120%);
+    transition: transform .7s cubic-bezier(.22,.9,.3,1), opacity .45s ease, filter .7s ease; }
+  .viewer.direct { transition: none; }          /* while a hand holds it: no lag */
+  .viewer.aside { opacity: .1 !important; pointer-events: none !important; filter: blur(2px) !important; }  /* a form is up */
+  .viewer.active { pointer-events: auto; }
+  .viewer.sinking { opacity: 0 !important; transition: transform 1.1s ease-in, opacity .9s ease-in; }
+  .viewer .chrome { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px;
+    background: rgba(255,255,255,.08); border-bottom: 1px solid rgba(255,255,255,.12); color: #f3e9f2; }
+  .viewer .tab { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 550;
+    padding: 6px 12px; border-radius: 9px; background: rgba(255,255,255,.12); white-space: nowrap; }
+  .viewer .tab .fav { width: 10px; height: 10px; border-radius: 50% 0 50% 50%; background: var(--accent, var(--rose)); transform: rotate(45deg); }
+  .viewer .url { flex: 1; font-family: var(--mono); font-size: 12px; color: rgba(243,233,242,.75);
+    background: rgba(0,0,0,.22); border-radius: 9px; padding: 6px 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .viewer .step { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--gold); white-space: nowrap; }
+  /* Fake pages, so the summon has something to reveal. Replace with the real feed. */
+  .page { position: absolute; inset: 44px 0 0 0; padding: 22px 26px; color: #efe6ee; overflow: hidden; }
+  .page .hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  .page .brand { font-weight: 700; letter-spacing: -.01em; font-size: 15px; }
+  .page .nav { display: flex; gap: 16px; font-size: 12px; opacity: .7; }
+  .page .hero { height: 26%; border-radius: 12px; margin-bottom: 18px; display: flex; align-items: flex-end; padding: 16px; font-size: 13px; opacity: .9;
+    background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 38%, transparent), rgba(230,201,138,.22)); }
+  .page .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .page .card { border-radius: 12px; background: rgba(255,255,255,.08); padding: 12px; font-size: 12px; min-height: 120px;
+    display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; border: 1px solid rgba(255,255,255,.08); }
+  .page .card .sw { height: 48px; border-radius: 8px; background: rgba(255,255,255,.12); margin-bottom: auto; }
+  .page .btn { align-self: flex-start; padding: 5px 9px; border-radius: 7px; font-size: 11px;
+    background: color-mix(in srgb, var(--accent) 30%, transparent); border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent); }
+  .page .btn.target { background: rgba(230,201,138,.32); border-color: rgba(230,201,138,.7); }
+  .page .lines { display: flex; flex-direction: column; gap: 10px; }
+  .page .line { height: 12px; border-radius: 6px; background: rgba(255,255,255,.12); }
+  .page .row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,.06); font-size: 12px; }
+  .page .row .who { width: 120px; font-weight: 600; }
+  .page .row .sub { flex: 1; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* The real feed: the latest frame of the agent's page, top-aligned and cropped like a browser window. */
+  .page.live { padding: 0; background: #f4eef3; }
+  .page.live img.shot { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: top center; opacity: 0; transition: opacity .35s ease; }
+  .page.live img.shot.on { opacity: 1; }
+  .page.live .wait { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 8px; color: #8a7a96; font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+    background: linear-gradient(110deg, #f4eef3 30%, #faf5f8 50%, #f4eef3 70%); background-size: 200% 100%; animation: shimmer 2.2s linear infinite; }
+  .page.live .wait .task { font-size: 13px; letter-spacing: 0; text-transform: none; color: #5a4a66; max-width: 70%; text-align: center; }
+  @keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+  .viewer.done .page::after, .viewer.failed .page::after { content: ""; position: absolute; inset: 0; pointer-events: none; transition: background .8s ease; }
+  .viewer.done .page::after { background: rgba(40, 28, 48, .28); }
+  .viewer.failed .page::after { background: rgba(90, 20, 40, .32); }
+  .viewer.done .step { color: #bfe3b4; } .viewer.failed .step { color: #f0a4b0; }
+
+  /* ── HUD ────────────────────────────────────────────────────────────────── */
+  .hud { position: fixed; left: 50%; bottom: 62px; transform: translateX(-50%); z-index: 300; display: flex; flex-direction: column; gap: 6px; max-width: 96vw;
+    background: rgba(255,255,255,.4); border: 1px solid var(--glass-line); border-radius: 16px; padding: 10px 12px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  .hud[hidden] { display: none; }
+  .hud .grp { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .hud .gl { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #8a7a96; width: 74px; flex-shrink: 0; }
+  .hud input { font: inherit; font-size: 12px; padding: 6px 10px; border-radius: 12px; border: 1px solid var(--glass-line); background: rgba(255,255,255,.7); color: #3f3550; width: 130px; }
+  .devtoggle { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 300; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6b5f7a;
+    background: var(--glass); border: 1px solid var(--glass-line); border-radius: 20px; padding: 8px 14px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); cursor: pointer; }
+  .devtoggle kbd { opacity: .6; margin-right: 4px; }
+  .hud button { font: inherit; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6b5f7a;
+    background: var(--glass); border: 1px solid var(--glass-line); border-radius: 20px; padding: 8px 14px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); cursor: pointer; transition: .15s; white-space: nowrap; }
+  .hud button:hover { background: rgba(255,255,255,.8); color: #3f3550; }
+  .hud button[aria-pressed="true"] { background: rgba(232,163,187,.55); border-color: rgba(232,163,187,.8); color: #4a2035; }
+  .hud kbd { font: inherit; opacity: .6; margin-right: 4px; }
+  .panel { position: fixed; z-index: 300; font-family: var(--mono); font-size: 11px; color: #6b5f7a; line-height: 1.5;
+    background: var(--glass); border: 1px solid var(--glass-line); border-radius: 12px; padding: 8px 12px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); opacity: .85; pointer-events: none; }
+  .stat { right: 16px; bottom: 26px; }
+  .log { left: 16px; top: 16px; width: 300px; }
+  .log b { color: #4a2035; font-weight: 600; }
+  .log .t { opacity: .55; }
+  .log .hint { border-top: 1px solid rgba(0,0,0,.08); margin-top: 6px; padding-top: 6px; opacity: .75; }
+  .label { position: fixed; z-index: 250; pointer-events: none; transform: translate(-50%, 0); opacity: 0; transition: opacity .3s ease;
+    color: #fff7fa; text-align: center; text-shadow: 0 2px 12px rgba(60,20,50,.6), 0 0 2px rgba(0,0,0,.4); }
+  .label.show { opacity: 1; }
+  .label .n { font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+  .label .f { font-size: 12px; opacity: .85; margin-top: 2px; max-width: 260px; }
+  .label .h { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; opacity: .6; margin-top: 6px; }
+  @media (max-width: 900px) { .stat, .log { display: none; } }
+</style>
+</head>
+<body>
+
+<div class="domain">
+  <video muted autoplay loop playsinline preload="auto">
+    <source src="/assets/voice/idle.webm" type="video/webm">
+    <source src="/assets/voice/idle.mp4" type="video/mp4">
+  </video>
+</div>
+
+<div id="viewers"></div>
+<canvas id="petals"></canvas>
+
+<div class="panel log" id="log"></div>
+<div class="devtoggle" id="devtoggle"><kbd>`</kbd>dev panel</div>
+<div class="hud" id="dev" hidden>
+  <div class="grp"><span class="gl">deck</span>
+    <button data-cmd="summon"><kbd>Space</kbd>New tab</button><button data-cmd="prev"><kbd>←</kbd>Prev</button><button data-cmd="next"><kbd>→</kbd>Next</button>
+    <button data-cmd="back"><kbd>B</kbd>Send back</button><button data-cmd="duplicate"><kbd>D</kbd>Duplicate</button><button data-cmd="close"><kbd>Esc</kbd>Close</button>
+    <button data-cmd="click"><kbd>C</kbd>Click</button><button data-cmd="think" id="b-think" aria-pressed="false"><kbd>T</kbd>Thinking</button><button data-cmd="calm" id="b-calm" aria-pressed="false"><kbd>M</kbd>Calm</button><button data-cmd="petals" id="b-petals"><kbd>P</kbd>Petals: real</button>
+  </div>
+  <div class="grp" id="grp-live"><span class="gl">live</span>
+    <button data-cmd="live" id="b-live" aria-pressed="false"><kbd>L</kbd>Live feed</button><input id="task-in" type="text" placeholder="run a task…" style="width:220px" /><button data-cmd="run">Run</button><button data-cmd="live.demo"><kbd>G</kbd>Demo run</button>
+  </div>
+  <div class="grp" id="grp-3D"><span class="gl">3D</span></div>
+  <div class="grp" id="grp-compound"><span class="gl">compound</span></div>
+  <div class="grp" id="grp-2D"><span class="gl">2D</span><input id="text-in" type="text" placeholder="text…" value="Mahoraga" /><button data-cmd="form.text">Form text</button></div>
+  <div class="grp"><span class="gl">form</span>
+    <button data-cmd="form.faces" id="b-faces"><kbd>F</kbd>Faces: leaves</button><button data-cmd="unpick"><kbd>U</kbd>Unpick</button><button data-cmd="cards.shuffle"><kbd>S</kbd>Shuffle</button><button data-cmd="form.dismiss"><kbd>0</kbd>Dismiss form</button>
+  </div>
+</div>
+<div class="label" id="label"></div>
+<div class="panel stat" id="stat"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// Petal summon prototype, round three: a stacked deck with an event surface
+// for hand gestures.
+//
+// The gesture side is being built separately. This file exposes everything a
+// gesture layer needs on `window.MahoragaTabs`, in two layers:
+//
+//   Intents  — one call, one outcome. Attach a recognised gesture to one.
+//     MahoragaTabs.send('summon')            new tab, summoned from the canopy
+//     MahoragaTabs.send('next')  / 'prev'    riffle the deck one card
+//     MahoragaTabs.send('back')              active tab goes to the back
+//     MahoragaTabs.send('close')             active tab sinks into the pool
+//     MahoragaTabs.send('click', {x, y})     click tell at a screen point
+//     MahoragaTabs.send('think', {on})       thinking orbit on/off
+//     MahoragaTabs.send('scale', {factor})   multiply the deck's size (clamped)
+//     MahoragaTabs.send('scale.to', {scale}) set it absolutely
+//     MahoragaTabs.send('move', {dx, dy})    nudge the deck
+//     MahoragaTabs.send('duplicate')         tear a copy of the active tab off in front
+//     MahoragaTabs.send('form', {kind})      form 'cube' | 'brain' | 'solar' out of petals
+//     MahoragaTabs.send('form.dismiss')      the form falls back to the pool
+//     MahoragaTabs.send('form.faces', {mode})cube faces: 'leaves' | 'glass' | 'solid' (omit to cycle)
+//     MahoragaTabs.send('pick', {x, y})      solar: pick the planet under a point (zooms to it)
+//     MahoragaTabs.send('unpick')            back out to the whole system
+//     While a form is up: grab rotates it, scale/stretch expand it in and out.
+//     MahoragaTabs.send('run', {task})       run a task on the service; its frame arrives via the live feed
+//     MahoragaTabs.send('live.connect', {url}) follow a service's /v1/live stream ('' = this origin)
+//     MahoragaTabs.send('live.demo')         a scripted run, for testing without a service
+//
+//   Continuous — for gestures with a clutch (pinch) that track the hand:
+//     'hand'        {id, x, y, pinch}   where a hand is; draws a petal cursor
+//     'hand.lost'   {id}                the hand left the frame
+//     'grab'        {id, x, y}          pinch closed: hold the active frame
+//     'grab.move'   {id, x, y}          move while held
+//     'grab.end'    {id, x, y, vx, vy}  pinch opened. Velocity decides:
+//                                        fast sideways → next/prev, fast down
+//                                        toward the pool → close, else drop
+//     'scrub'       {id, x}             start riffling from a screen x
+//     'scrub.move'  {id, x}             cards fan under the hand
+//     'scrub.end'   {id, vx}            snap to the nearest card
+//     'stretch'     {id, distance}      two-hand pinch: start resizing
+//     'stretch.move'{id, distance}      resize by the ratio to the start
+//     'stretch.end' {id}
+//
+//   Outcomes — subscribe with MahoragaTabs.on(name, fn):
+//     'tab.summoned', 'tab.activated', 'tab.closed', 'deck.changed',
+//     'deck.moved', 'deck.scaled', 'grab.rejected' (nothing under the hand)
+//
+// A virtual hand driven by the mouse exercises the same surface here:
+// move = 'hand', drag = grab, shift+drag = scrub, wheel = scale.
+// The petal engine (wind, flutter, settle) is unchanged from round two.
+// ─────────────────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('petals');
+const ctx = canvas.getContext('2d', { alpha: true });
+const viewersEl = document.getElementById('viewers');
+const statEl = document.getElementById('stat');
+const logEl = document.getElementById('log');
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+let W = 0, H = 0, now = 0;
+
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  layoutDeck(true);
+}
+window.addEventListener('resize', resize);
+
+// ── Helpers
+const rand = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const smoothstep = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
+const easeOutQuart = t => 1 - Math.pow(1 - t, 4);
+const flightEase = t => smoothstep(0, 0.14, t) * (1 - Math.pow(1 - t, 2.6));
+function lerpAngle(a, b, t) { let d = (b - a + Math.PI * 3) % (Math.PI * 2) - Math.PI; return a + d * t; }
+
+// ── Petal sprites
+const TINTS = [['#fbe4ec', '#f2b7cb'], ['#f9d5e0', '#eea6bf'], ['#fdeff4', '#f4c3d3'], ['#f6c6d6', '#e79ab6'],
+  ['#e9a8bf', '#b9607f'],   // 4 deep mauve: brain grooves
+  ['#fff0c2', '#f0b85a'],   // 5 gold: the sun
+  ['#cfe0f5', '#7aa6da'],   // 6 water blue: Earth, Uranus, Neptune
+  ['#f5c0b0', '#d4735c'],   // 7 rust: Mars, Mercury
+  ['#f7dcc4', '#d9a06e'],   // 8 tan: Venus, Jupiter, Saturn
+  ['#cfe8c3', '#6fae72'],   // 9 leaf green: parks on the map
+];
+const SPRITE = 28;
+// Dyes, by index, shared by both sprite sets: 4 mauve, 5 gold, 6 blue, 7 rust, 8 tan.
+const DYES = { 4: ['#8c5f7c', 0.7], 5: ['#f0b85a', 0.3], 6: ['#7aa6da', 0.4], 7: ['#d4735c', 0.45], 8: ['#d9a06e', 0.3], 9: ['#6fae72', 0.4] };   // mauve is a shadow tone, not a highlight
+const procSprites = TINTS.map(([light, deep]) => {
+  const c = document.createElement('canvas'); c.width = c.height = SPRITE * 2;
+  const g = c.getContext('2d'); g.scale(2, 2); g.translate(SPRITE / 2, SPRITE / 2);
+  const grad = g.createRadialGradient(0, 2, 1, 0, 0, SPRITE / 2);
+  grad.addColorStop(0, deep); grad.addColorStop(0.55, light); grad.addColorStop(1, light);
+  g.fillStyle = grad; g.beginPath();
+  g.moveTo(0, 11); g.bezierCurveTo(-11, 6, -12, -6, -5, -10); g.quadraticCurveTo(-1, -8, 0, -5);
+  g.quadraticCurveTo(1, -8, 5, -10); g.bezierCurveTo(12, -6, 11, 6, 0, 11); g.closePath(); g.fill();
+  g.strokeStyle = 'rgba(190,110,140,.18)'; g.lineWidth = .6; g.stroke();
+  return c;
+});
+let sprites = procSprites, realSprites = null, spriteScale = 1;
+let NATURAL = [0, 1, 2, 3];                 // indices makePetal may pick from
+const pickNatural = () => NATURAL[(Math.random() * NATURAL.length) | 0];
+// The real petals: a sheet cut from generated sakura petals (assets/petals).
+// Indices 0-3 are four flat petals, 4-8 the dyes (recoloured real petals),
+// 9+ every other petal on the sheet: curled, twisted, edge-on.
+(async () => {
+  try {
+    const meta = await (await fetch('/assets/petals/petals.json')).json();
+    const img = new Image(); img.src = '/assets/petals/petals.png'; await img.decode();
+    const frame = i => { const f = meta.frames[i], c = document.createElement('canvas'); c.width = f.w; c.height = f.h; c.getContext('2d').drawImage(img, f.x, f.y, f.w, f.h, 0, 0, f.w, f.h); return c; };
+    const dye = (src, [color, depth]) => {
+      const c = document.createElement('canvas'); c.width = src.width; c.height = src.height; const g = c.getContext('2d');
+      g.drawImage(src, 0, 0);
+      g.globalCompositeOperation = 'color'; g.fillStyle = color; g.fillRect(0, 0, c.width, c.height);       // take the hue
+      g.globalCompositeOperation = 'multiply'; g.globalAlpha = depth; g.fillRect(0, 0, c.width, c.height);   // and some of its depth
+      g.globalAlpha = 1; g.globalCompositeOperation = 'destination-in'; g.drawImage(src, 0, 0);            // clipped to the petal
+      return c;
+    };
+    const n = meta.frames.length, all = Array.from({ length: n }, (_, i) => frame(i));
+    const set = [all[0], all[1], all[2], all[3]];
+    for (let d = 4; d <= 9; d++) set[d] = dye(all[(d - 4) % 4], DYES[d]);
+    for (let i = 4; i < n; i++) set.push(all[i]);      // natural petals continue from index 10
+    realSprites = set;
+    if (settings.realPetals) usePetals(true);
+  } catch (e) { console.warn('real petals unavailable, keeping drawn ones', e); }
+})();
+function usePetals(real) {
+  settings.realPetals = real;
+  if (real && realSprites) { sprites = realSprites; spriteScale = 1.25; NATURAL = [0, 1, 2, 3, ...Array.from({ length: realSprites.length - 10 }, (_, i) => i + 10)]; }
+  else { sprites = procSprites; spriteScale = 1; NATURAL = [0, 1, 2, 3]; }
+  const b = document.getElementById('b-petals'); if (b) b.innerHTML = `<kbd>P</kbd>Petals: ${settings.realPetals ? 'real' : 'drawn'}`;
+}
+
+// ── Settings
+const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const settings = {
+  calm: prefersReduced,
+  realPetals: !/petals=drawn/.test(location.search),
+  get count()    { return this.calm ? 170 : 480; },
+  get duration() { return this.calm ? 0.9 : 1.45; },
+  get swirl()    { return this.calm ? 0.3 : 1.0; },
+  get ambient()  { return this.calm ? 8 : 20; },
+  get windScale(){ return this.calm ? 0.4 : 1.0; },
+};
+
+// ── Wind
+const gust = { x: 0, y: 0 };
+function wind(x, y, t) {
+  const kx = x * 0.0042, ky = y * 0.0042;
+  const wx = Math.sin(kx * 1.3 + t * 0.9) * 0.6 + Math.sin(ky * 2.1 - t * 0.7 + 1.7) * 0.4 + Math.sin((kx + ky) * 0.7 + t * 0.35) * 0.5;
+  const wy = Math.cos(kx * 1.7 - t * 0.6 + 0.4) * 0.35 + Math.sin(ky * 1.1 + t * 0.8 + 2.3) * 0.3;
+  const s = 24 * settings.windScale;
+  return { x: wx * s + gust.x, y: wy * s + gust.y };
+}
+function blow(fromX, fromY, toX, toY, strength) {
+  const dx = toX - fromX, dy = toY - fromY, len = Math.hypot(dx, dy) || 1;
+  gust.x += dx / len * strength; gust.y += dy / len * strength;
+}
+function canopyPoint() {
+  const a = rand(0, Math.PI * 2), r = Math.sqrt(Math.random());
+  return { x: W * 0.5 + Math.cos(a) * r * W * 0.42, y: H * 0.24 + Math.sin(a) * r * H * 0.2 };
+}
+const waterline = () => H * 0.8;
+function perimeterPoint(f, u) {
+  const per = 2 * (f.w + f.h); let d = ((u % 1) + 1) % 1 * per;
+  if (d < f.w) return { x: f.x + d, y: f.y };
+  d -= f.w; if (d < f.h) return { x: f.x + f.w, y: f.y + d };
+  d -= f.h; if (d < f.w) return { x: f.x + f.w - d, y: f.y + f.h };
+  d -= f.w; return { x: f.x, y: f.y + f.h - d };
+}
+
+// ── Petals. mode: ambient | gather | settle | border | fall | orbit | cursor | fade
+const petals = [], ripples = [];
+function makePetal(x, y) {
+  return {
+    x, y, px: x, py: y, mode: 'ambient', sprite: pickNatural(),   // never a dye; those are for forms
+    size: rand(0.55, 1.05), rot: rand(0, Math.PI * 2), spin: rand(-1.6, 1.6),
+    flip: rand(0, Math.PI * 2), alpha: 1, born: now, tab: null,
+    phase: rand(0, Math.PI * 2), freq: rand(3.2, 5.6), amp: rand(22, 58), fall: rand(34, 62), vx: 0, vy: 0,
+  };
+}
+function spawnAmbient(fresh) {
+  const p = makePetal(rand(0, W), fresh ? rand(-40, H * 0.5) : rand(-60, -20)); p.alpha = rand(.5, .9); petals.push(p);
+}
+function flutterStep(p, dt, gravityRamp) {
+  p.phase += p.freq * dt;
+  const swing = Math.sin(p.phase), w = wind(p.x, p.y, now);
+  const vy = p.fall * (0.55 + 0.45 * Math.abs(Math.cos(p.phase))) * gravityRamp;
+  p.x += (swing * p.amp + w.x + p.vx) * dt; p.y += (vy + w.y * 0.5 + p.vy) * dt;
+  p.vx *= Math.pow(0.15, dt); p.vy *= Math.pow(0.15, dt);
+  p.rot = lerpAngle(p.rot, p.baseRot + swing * 0.7, 1 - Math.pow(0.02, dt));
+  p.flip += (1.6 + Math.abs(swing) * 2.2) * dt;
+}
+function startFlight(p, s, t, dur) {
+  p.mode = 'gather'; p.born = now; p.sx = s.x; p.sy = s.y; p.tx = t.x; p.ty = t.y; p.dur = dur; p.isClick = false;
+  const dx = t.x - s.x, dy = t.y - s.y, len = Math.hypot(dx, dy) || 1, side = Math.random() < 0.5 ? -1 : 1;
+  const arc = len * rand(0.15, 0.42) * settings.swirl * side;
+  p.cx = (s.x + t.x) / 2 + (-dy / len) * arc; p.cy = (s.y + t.y) / 2 + (dx / len) * arc + len * 0.08;
+  p.nx = -dy / len; p.ny = dx / len; p.wobA = rand(6, 16) * settings.swirl; p.wobF = rand(5, 9);
+  p.ox = 0; p.oy = 0; p.delay = p.delay || 0;
+}
+function startFall(p, delay) {
+  p.mode = 'fall'; p.fallAt = now + delay; p.baseRot = p.rot; p.rippled = false; p.tab = null; p.follow = null; p.form = null;
+  p.vx = rand(-20, 20); p.vy = rand(-30, 5);
+  if (Math.random() < 0.2) p.vy = rand(-90, -40);
+}
+
+// ── The deck ───────────────────────────────────────────────────────────────
+// tabs[0] is the active (front) card. The whole deck shares one placement:
+// `view` is the offset and scale a hand has given it. `scrub` is the
+// continuous riffle offset in cards while a hand is fanning the deck.
+const SITES = [
+  { name: 'example.shop', url: 'https://example.shop/collections/tea-sets?sort=price', accent: '#e8a3bb', kind: 'shop', step: 'Step 3 · add to cart' },
+  { name: 'docs.example', url: 'https://docs.example/api/reference#authentication', accent: '#a9c4e6', kind: 'docs', step: 'Step 1 · read auth section' },
+  { name: 'mail.example', url: 'https://mail.example/inbox?label=invoices', accent: '#9fc7a8', kind: 'mail', step: 'Step 2 · open latest invoice' },
+  { name: 'maps.example', url: 'https://maps.example/search/tea+house+near+me', accent: '#e6c98a', kind: 'docs', step: 'Step 4 · copy address' },
+];
+const tabs = [];
+let nextSite = 0;
+const base = { w: 0, h: 0 };
+const view = { x: 0, y: 0, scale: 1 };
+const scrub = { on: false, s: 0, x0: 0, s0: 0 };
+const DEPTH_SHOWN = 4, DEPTH_RISE = 30, DEPTH_SHRINK = 0.07;
+
+function pageHtml(site) {
+  if (site.kind === 'shop') return `
+    <div class="hdr"><div class="brand">${site.name}</div><div class="nav"><span>Tea</span><span>Sets</span><span>Journal</span><span>Cart (0)</span></div></div>
+    <div class="hero">Spring collection · free shipping over $40</div>
+    <div class="grid">
+      <div class="card"><div class="sw"></div>Kyusu, cedar<span>$62</span><span class="btn">Add to cart</span></div>
+      <div class="card"><div class="sw"></div>Yunomi pair<span>$28</span><span class="btn target">Add to cart</span></div>
+      <div class="card"><div class="sw"></div>Chasen whisk<span>$19</span><span class="btn">Add to cart</span></div>
+      <div class="card"><div class="sw"></div>Matcha bowl<span>$44</span><span class="btn">Add to cart</span></div>
+    </div>`;
+  if (site.kind === 'mail') return `
+    <div class="hdr"><div class="brand">${site.name}</div><div class="nav"><span>Inbox</span><span>Starred</span><span>Sent</span></div></div>
+    <div class="lines">
+      <div class="row"><span class="who">Kettle & Co.</span><span class="sub">Invoice #4471 for your March order</span><span class="btn target">Open</span></div>
+      <div class="row"><span class="who">Yamada Tea</span><span class="sub">Your shipment is on its way</span><span class="btn">Open</span></div>
+      <div class="row"><span class="who">Studio Kiln</span><span class="sub">Re: custom glaze samples</span><span class="btn">Open</span></div>
+      <div class="row"><span class="who">Bank</span><span class="sub">Statement ready</span><span class="btn">Open</span></div>
+    </div>`;
+  return `
+    <div class="hdr"><div class="brand">${site.name}</div><div class="nav"><span>Guides</span><span>Reference</span><span>Changelog</span></div></div>
+    <div class="hero">Authentication</div>
+    <div class="lines"><div class="line" style="width:80%"></div><div class="line" style="width:92%"></div><div class="line" style="width:60%"></div>
+      <div class="line" style="width:88%"></div><div class="line" style="width:40%"></div></div>
+    <div style="margin-top:16px"><span class="btn target">Copy token</span></div>`;
+}
+function esc(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function createTab(siteOverride) {
+  const site = siteOverride || SITES[nextSite % SITES.length]; nextSite++;
+  const el = document.createElement('div'); el.className = 'viewer'; el.style.setProperty('--accent', site.accent);
+  el.innerHTML = `
+    <div class="chrome"><div class="tab"><span class="fav"></span> <span class="name">${esc(site.name)}</span></div><div class="url">${esc(site.url)}</div><div class="step">${esc(site.step)}</div></div>
+    ${site.live
+      ? `<div class="page live"><img class="shot" alt=""><div class="wait"><div>waiting for the first frame</div><div class="task">${esc(site.live.task || '')}</div></div></div>`
+      : `<div class="page">${pageHtml(site)}</div>`}`;
+  viewersEl.appendChild(el);
+  const tab = { el, site, state: 'summoning', settledTotal: 0, settled: 0, id: 'tab-' + (nextSite), done: null, shot: null };
+  el.addEventListener('click', e => { if (tab === active() && tab.state === 'held') clickTell(e.clientX, e.clientY); });
+  return tab;
+}
+const active = () => tabs[0] || null;
+
+// The active frame's rectangle: base size, scaled and offset by the hand.
+function frontRect() {
+  const w = base.w * view.scale, h = base.h * view.scale;
+  return { x: W / 2 + view.x - w / 2, y: H * 0.44 + view.y - h / 2, w, h };
+}
+// Where a card at continuous depth d sits. Depth 0 is the front; deeper cards
+// rise behind it and shrink. Negative depth is a card being riffled off the
+// front: it slides out to the side and thins.
+function cardPlacement(d) {
+  const f = frontRect();
+  if (d >= 0) {
+    const s = Math.max(0.5, 1 - DEPTH_SHRINK * d), w = f.w * s, h = f.h * s;
+    return { x: f.x + (f.w - w) / 2, y: f.y - DEPTH_RISE * view.scale * d, w, h, s: view.scale * s,
+      opacity: Math.max(0.25, 1 - 0.18 * d), bright: Math.max(0.55, 1 - 0.12 * d), z: 100 - Math.round(d * 10) };
+  }
+  const k = -d, s = Math.max(0.6, 1 - 0.08 * k), w = f.w * s, h = f.h * s;
+  return { x: f.x + (f.w - w) / 2 - f.w * 0.62 * k, y: f.y + 24 * k, w, h, s: view.scale * s,
+    opacity: Math.max(0, 1 - 0.7 * k), bright: 1, z: 100 + Math.round(k * 10) };
+}
+function layoutDeck(immediate) {
+  base.w = Math.min(W * 0.72, 1120, H * 0.60 * 1.6); base.h = base.w * 10 / 16;
+  const n = tabs.length;
+  tabs.forEach((t, i) => {
+    let d = i - scrub.s;
+    if (n > 1 && d < -0.5) d += n;        // riffled past the front: wraps to the back
+    const p = cardPlacement(d);
+    t.rect = p;
+    t.el.style.width = base.w + 'px'; t.el.style.height = base.h + 'px';
+    t.el.classList.toggle('direct', !!immediate);
+    t.el.style.transform = `translate(${p.x}px, ${p.y}px) scale(${p.s})`;
+    t.el.style.zIndex = p.z; t.el.style.filter = `brightness(${p.bright * (t.done === 'done' ? 0.82 : t.done === 'failed' ? 0.72 : 1)})${t.done ? ' saturate(.75)' : ''}`;
+    if (t.state !== 'summoning' && t.state !== 'sinking') t.el.style.opacity = i > DEPTH_SHOWN ? 0 : p.opacity;
+    t.el.classList.toggle('active', i === 0);
+    t.el.classList.toggle('aside', !!form.kind);
+  });
+}
+// Border petals live on the active frame in perimeter coordinates, so the
+// outline follows the frame wherever a hand takes it.
+function anchor(p) { const f = frontRect(), q = perimeterPoint(f, p.u); return { x: q.x + p.jx, y: q.y + p.jy }; }
+
+// ── Actions ────────────────────────────────────────────────────────────────
+// A tab still forming when the next command lands is finished on the spot, so
+// no intent is ever dropped.
+function settleNow(tab) { if (tab && tab.state === 'summoning') { tab.state = 'held'; tab.el.style.opacity = 1; } }
+function summon(site) {
+  const cur = active();
+  if (cur) { settleNow(cur); releaseBorder(cur); }
+  const tab = createTab(site); tabs.unshift(tab); layoutDeck();
+  const f = frontRect(), n = settings.count, edgeShare = 0.55;
+  blow(W / 2, H * 0.24, f.x + f.w / 2, f.y + f.h / 2, 150);
+  for (let i = 0; i < n; i++) {
+    const s = canopyPoint(), p = makePetal(s.x, s.y), onEdge = i < n * edgeShare;
+    let t;
+    if (onEdge) { p.u = (i / (n * edgeShare) + 0.13) % 1; p.jx = rand(-9, 9); p.jy = rand(-9, 9); p.follow = anchor; t = anchor(p); p.delay = rand(0, 0.32); }
+    else { t = { x: rand(f.x + 26, f.x + f.w - 26), y: rand(f.y + 26, f.y + f.h - 26) }; p.delay = rand(0.25, 0.7); tab.settledTotal++; }
+    startFlight(p, s, t, settings.duration * rand(0.8, 1.25));
+    p.edge = onEdge; p.tab = tab; p.keep = onEdge && Math.random() < 0.72; petals.push(p);
+  }
+  emit('tab.summoned', { tab: tab.id, site: tab.site.name, session: site && site.live ? site.live.session : undefined }); emit('deck.changed', deckInfo());
+  return tab;
+}
+// A lighter outline for a card that has just come to the front.
+function outline(tab, share) {
+  const f = frontRect(), n = Math.round((settings.calm ? 60 : 150) * (share || 1));
+  for (let i = 0; i < n; i++) {
+    const s = canopyPoint(), p = makePetal(s.x, s.y);
+    p.u = (i / n + 0.13) % 1; p.jx = rand(-9, 9); p.jy = rand(-9, 9); p.follow = anchor;
+    p.delay = rand(0.05, 0.5); startFlight(p, s, anchor(p), settings.duration * rand(0.6, 0.9));
+    p.edge = true; p.tab = tab; p.keep = Math.random() < 0.72; petals.push(p);
+  }
+}
+function releaseBorder(tab) {
+  for (const p of petals) if (p.tab === tab && (p.mode === 'border' || p.mode === 'gather' || p.mode === 'settle')) {
+    if (p.mode === 'gather' && !p.edge) tab.settled++;
+    startFall(p, rand(0, 0.35)); p.fall *= 1.6; p.die = now + rand(1.8, 3.0);
+  }
+}
+// Rotate the deck by k cards (positive: the next card comes to the front).
+function rotateDeck(k) {
+  const n = tabs.length; if (n < 2) return;
+  k = ((k % n) + n) % n; if (!k) { scrub.s = 0; layoutDeck(); return; }
+  const cur = active(); settleNow(cur);
+  releaseBorder(cur);
+  const moved = tabs.splice(0, k); tabs.push(...moved); scrub.s = 0;
+  for (const t of tabs) t.el.classList.remove('direct');
+  layoutDeck();
+  const f = frontRect(); blow(f.x + f.w / 2, f.y + f.h, f.x + f.w / 2, f.y, 70);
+  if (thinking) setThinking(false);
+  outline(active(), 0.8);
+  emit('tab.activated', { tab: active().id, site: active().site.name }); emit('deck.changed', deckInfo());
+}
+function sendBack() { rotateDeck(1); }
+function closeActive() {
+  const tab = active(); if (!tab) return;
+  settleNow(tab); if (thinking) setThinking(false);
+  const f = frontRect(); releaseBorder(tab);
+  const n = settings.calm ? 90 : 220;
+  for (let i = 0; i < n; i++) {
+    const p = makePetal(rand(f.x, f.x + f.w), rand(f.y, f.y + f.h));
+    p.alpha = 0; p.fadeIn = true; startFall(p, rand(0, 0.5)); p.fall *= 1.8; p.die = now + rand(1.6, 2.8); petals.push(p);
+  }
+  tabs.shift(); tab.state = 'sinking'; tab.el.classList.remove('active', 'direct'); tab.el.classList.add('sinking');
+  tab.el.style.transform = `translate(${f.x}px, ${f.y + 70}px) scale(${view.scale})`;
+  setTimeout(() => tab.el.remove(), 1100);
+  emit('tab.closed', { tab: tab.id, site: tab.site.name });
+  scrub.s = 0; layoutDeck();
+  if (active()) { setTimeout(() => outline(active(), 0.8), 250); emit('tab.activated', { tab: active().id, site: active().site.name }); }
+  emit('deck.changed', deckInfo());
+}
+function moveBy(dx, dy) {
+  const f = frontRect();
+  view.x = clamp(view.x + dx, -W / 2 + f.w * 0.25, W / 2 - f.w * 0.25);
+  view.y = clamp(view.y + dy, -H * 0.44 + f.h * 0.3, H * 0.9 - H * 0.44 - f.h * 0.3);
+  layoutDeck(true); emit('deck.moved', { x: view.x, y: view.y });
+}
+function scaleTo(s) {
+  view.scale = clamp(s, 0.45, Math.min(1.6, (W * 0.96) / base.w, (H * 0.86) / base.h));
+  layoutDeck(true); emit('deck.scaled', { scale: view.scale });
+}
+function clickTell(x, y) {
+  const tab = active(); if (!tab) return; const f = frontRect();
+  const s = { x: x + rand(-40, 40), y: f.y - 10 }, p = makePetal(s.x, s.y);
+  startFlight(p, s, { x, y }, 0.7); p.wobA *= 0.5; p.edge = false; p.keep = false; p.isClick = true; p.tab = tab; petals.push(p);
+}
+let thinking = false;
+function setThinking(on) {
+  const tab = active(); if (on && !tab) return;
+  thinking = on; setPressed('b-think', on);
+  if (on) {
+    const f = frontRect(), n = settings.calm ? 14 : 36;
+    for (let i = 0; i < n; i++) {
+      const p = makePetal(f.x + f.w / 2, f.y + f.h / 2);
+      p.mode = 'orbit'; p.tab = tab; p.ang = (i / n) * Math.PI * 2; p.angV = rand(0.3, 0.6) * (Math.random() < .5 ? -1 : 1);
+      p.rx = rand(64, 120); p.ry = rand(54, 100); p.alpha = 0; p.fadeIn = true; petals.push(p);
+    }
+  } else for (const p of petals) if (p.mode === 'orbit') startFall(p, rand(0, 0.3));
+}
+
+
+// ── Duplicate: the active card tears in two ─────────────────────────────────
+// The copy slides out in front while petals shed from the original's face
+// form the copy's outline; the original settles one card back.
+function duplicate() {
+  const cur = active(); if (!cur || form.kind) return;
+  settleNow(cur); releaseBorder(cur);
+  const from = frontRect();
+  const tab = createTab(cur.site); tabs.unshift(tab); layoutDeck();
+  tab.tear = { at: now, dur: 0.9 };
+  const n = settings.calm ? 90 : 220, edgeShare = 0.6;
+  blow(from.x + from.w / 2, from.y + from.h / 2, from.x + from.w, from.y + from.h / 2, 60);
+  for (let i = 0; i < n; i++) {
+    const s = { x: rand(from.x + 20, from.x + from.w - 20), y: rand(from.y + 20, from.y + from.h - 20) };
+    const p = makePetal(s.x, s.y), onEdge = i < n * edgeShare;
+    let t;
+    if (onEdge) { p.u = (i / (n * edgeShare) + 0.37) % 1; p.jx = rand(-8, 8); p.jy = rand(-8, 8); p.follow = anchor; t = anchor(p); p.delay = rand(0, 0.25); }
+    else { t = { x: rand(from.x + 26, from.x + from.w - 26), y: rand(from.y + 26, from.y + from.h - 26) }; p.delay = rand(0.1, 0.4); tab.settledTotal++; }
+    startFlight(p, s, t, rand(0.5, 0.85)); p.wobA *= 0.6;
+    p.edge = onEdge; p.tab = tab; p.keep = onEdge && Math.random() < 0.72; petals.push(p);
+  }
+  emit('tab.duplicated', { tab: tab.id, from: cur.id, site: tab.site.name }); emit('deck.changed', deckInfo());
+}
+
+// ── Forms: 3D objects made of petals ────────────────────────────────────────
+// Each petal on a form has a point on the object's surface. The camera
+// rotates and projects those points every frame, so forming, rotating and
+// zooming all reuse the same "follow the target" flight and settle.
+const form = { kind: null, faces: 'leaves', petals: [], picked: null, planets: [], onSettle: null, settled: 0, total: 0 };
+const cam = { yaw: 0.6, pitch: 0.35, vyaw: 0, vpitch: 0, zoom: 1, zoomT: 1, focus: [0, 0, 0], focusT: [0, 0, 0], D: 6.5 };
+const labelEl = document.getElementById('label');
+
+function formSize() { return Math.min(W, H) * (form.size || 0.19) * cam.zoom; }
+function rot3(x, y, z) {
+  const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), cx = Math.cos(cam.pitch), sx = Math.sin(cam.pitch);
+  const x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
+  return [x1, y * cx - z1 * sx, y * sx + z1 * cx];
+}
+function project(x, y, z) {
+  const [rx, ry, rz] = rot3(x - cam.focus[0], y - cam.focus[1], z - cam.focus[2]);
+  const f = cam.D / (cam.D + rz), S = formSize();
+  return { x: W / 2 + view.x + rx * f * S, y: H * 0.44 + view.y - ry * f * S, f, z: rz };   // world +y is up
+}
+// Per-petal follow: projects its surface point and records depth cues.
+function followForm(p) {
+  let w = p.world ? p.world(p) : p.p3;
+  if (form.breath && form.kind === 'brain') w = [w[0] * form.breath, w[1] * form.breath, w[2] * form.breath];
+  const q = project(w[0], w[1], w[2]);
+  p.ds = q.f * (p.sizeScale || 1);                       // nearer petals draw bigger
+  p.da = clamp(0.4 + 0.6 * (1 - (q.z + 1.6) / 3.2), 0.35, 1) * (p.dim || 1);   // farther petals dim
+  p.depth = q.z;
+  return q;
+}
+function sphereSample(i, n) {
+  const k = (i + 0.5) / n, phi = Math.acos(1 - 2 * k), th = Math.PI * (1 + Math.sqrt(5)) * i;
+  return [Math.cos(th) * Math.sin(phi), Math.cos(phi), Math.sin(th) * Math.sin(phi)];
+}
+
+// ── Form builders ───────────────────────────────────────────────────────────
+// A form is a list of surface points: {p3, sprite?, sizeScale?, dim?, edge?,
+// face?}. Builders may also register flat faces (polygons of 3D corners) so
+// the face modes can pane them, and a size or camera that suits the shape.
+const N = k => Math.round(k * (settings.calm ? 0.45 : 1));
+const lerp3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const norm3 = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+const triArea = ([a, b, c]) => { const n = cross(sub3(b, a), sub3(c, a)); return Math.hypot(n[0], n[1], n[2]) / 2; };
+
+// Flat-faced solids: 30% of each face's petals sit on its edges, the rest
+// fill it (fan triangulation, area-weighted). Registers the faces for paning.
+function polyFaces(faces, perFace, sprite) {
+  const out = []; form.faceList = faces;
+  faces.forEach((corners, fi) => {
+    const n = N(perFace), tris = [];
+    for (let i = 1; i < corners.length - 1; i++) tris.push([corners[0], corners[i], corners[i + 1]]);
+    const areas = tris.map(triArea), total = areas.reduce((a, b) => a + b, 0);
+    for (let i = 0; i < n; i++) {
+      if (i < n * 0.3) { const e = (Math.random() * corners.length) | 0; out.push({ p3: lerp3(corners[e], corners[(e + 1) % corners.length], Math.random()), face: fi, edge: true, sprite }); }
+      else {
+        let r = Math.random() * total, ti = 0; while (ti < tris.length - 1 && r > areas[ti]) { r -= areas[ti]; ti++; }
+        const [a, b, c] = tris[ti]; let u = Math.random(), v = Math.random(); if (u + v > 1) { u = 1 - u; v = 1 - v; } const w = 1 - u - v;
+        out.push({ p3: [a[0] * w + b[0] * u + c[0] * v, a[1] * w + b[1] * u + c[1] * v, a[2] * w + b[2] * u + c[2] * v], face: fi, edge: false, sprite });
+      }
+    }
+  });
+  return out;
+}
+// Surface of revolution around Y: r(y) for y in [y0, y1]. Rejection-samples
+// so petals spread evenly over the surface.
+function lathe(rOf, y0, y1, n, extra) {
+  const out = [], rmax = Math.max(...Array.from({ length: 20 }, (_, i) => rOf(y0 + (y1 - y0) * i / 19)));
+  let made = 0, guard = 0;
+  while (made < n && guard++ < n * 20) {
+    const y = rand(y0, y1), r = rOf(y); if (Math.random() > r / rmax) continue;
+    const a = rand(0, Math.PI * 2); out.push({ p3: [Math.cos(a) * r, y, Math.sin(a) * r], ...(extra || {}) }); made++;
+  }
+  return out;
+}
+function disc(y, r, n, extra, ringShare) {
+  const out = []; for (let i = 0; i < n; i++) { const a = rand(0, Math.PI * 2), edge = i < n * (ringShare === undefined ? 0.35 : ringShare), rr = edge ? r : r * Math.sqrt(Math.random()); out.push({ p3: [Math.cos(a) * rr, y, Math.sin(a) * rr], edge, ...(extra || {}) }); }
+  return out;
+}
+// A tube of radius `r` along a path t → [x,y,z], t in [0,1].
+function tube(path, r, n, extra) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const t = Math.random(), c = path(t), d = norm3(sub3(path(Math.min(1, t + 0.01)), path(Math.max(0, t - 0.01))));
+    const ref = Math.abs(d[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0], u = norm3(cross(d, ref)), v = cross(d, u), a = rand(0, Math.PI * 2);
+    out.push({ p3: [c[0] + (u[0] * Math.cos(a) + v[0] * Math.sin(a)) * r, c[1] + (u[1] * Math.cos(a) + v[1] * Math.sin(a)) * r, c[2] + (u[2] * Math.cos(a) + v[2] * Math.sin(a)) * r], ...(extra || {}) });
+  }
+  return out;
+}
+function sphereAt(c, r, n, extra) { const out = []; for (let i = 0; i < n; i++) { const q = sphereSample(i, n); out.push({ p3: [c[0] + q[0] * r, c[1] + q[1] * r, c[2] + q[2] * r], ...(extra || {}) }); } return out; }
+// The surface of an axis-aligned box, faces picked by area.
+function boxSurface(c, sz, n, extra, warp) {
+  const out = [], [sx, sy, sz2] = sz, areas = [sy * sz2, sy * sz2, sx * sz2, sx * sz2, sx * sy, sx * sy], total = areas.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < n; i++) {
+    let r = Math.random() * total, f = 0; while (f < 5 && r > areas[f]) { r -= areas[f]; f++; }
+    const u = rand(-1, 1), v = rand(-1, 1), s = f % 2 ? -1 : 1; let pt;
+    if (f < 2) pt = [s * sx, u * sy, v * sz2]; else if (f < 4) pt = [u * sx, s * sy, v * sz2]; else pt = [u * sx, v * sy, s * sz2];
+    pt = [c[0] + pt[0], c[1] + pt[1], c[2] + pt[2]]; if (warp) pt = warp(pt);
+    out.push({ p3: pt, ...(extra || {}) });
+  }
+  return out;
+}
+const pinkMix = i => (i % 3 ? 2 : 3);
+
+// ── 3D primitives
+const FACES = [
+  { n: [1, 0, 0], a: [0, 1, 0], b: [0, 0, 1] }, { n: [-1, 0, 0], a: [0, 1, 0], b: [0, 0, 1] },
+  { n: [0, 1, 0], a: [1, 0, 0], b: [0, 0, 1] }, { n: [0, -1, 0], a: [1, 0, 0], b: [0, 0, 1] },
+  { n: [0, 0, 1], a: [1, 0, 0], b: [0, 1, 0] }, { n: [0, 0, -1], a: [1, 0, 0], b: [0, 1, 0] },
+];
+function facePoint(fc, u, v) { return [fc.n[0] + fc.a[0] * u + fc.b[0] * v, fc.n[1] + fc.a[1] * u + fc.b[1] * v, fc.n[2] + fc.a[2] * u + fc.b[2] * v]; }
+function buildCube() { return polyFaces(FACES.map(fc => [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => facePoint(fc, u, v))), 150); }
+function buildSphere() { return sphereAt([0, 0, 0], 1, N(900)).map((q, i) => ({ ...q, sprite: pinkMix(i) })); }
+function buildTorus() {
+  const out = [], R = 0.8, r = 0.34; let made = 0, guard = 0;
+  while (made < N(1000) && guard++ < 40000) {
+    const u = rand(0, Math.PI * 2), v = rand(0, Math.PI * 2); if (Math.random() > (R + r * Math.cos(v)) / (R + r)) continue;
+    out.push({ p3: [(R + r * Math.cos(v)) * Math.cos(u), r * Math.sin(v), (R + r * Math.cos(v)) * Math.sin(u)], sprite: pinkMix(made) }); made++;
+  }
+  return out;
+}
+function buildPyramid() {
+  const apex = [0, 1, 0], b = [[-1, -0.8, -1], [1, -0.8, -1], [1, -0.8, 1], [-1, -0.8, 1]];
+  return polyFaces([[apex, b[0], b[1]], [apex, b[1], b[2]], [apex, b[2], b[3]], [apex, b[3], b[0]], [b[3], b[2], b[1], b[0]]], 150);
+}
+function buildCylinder() { return [...lathe(() => 0.7, -0.9, 0.9, N(620)), ...disc(0.9, 0.7, N(170)), ...disc(-0.9, 0.7, N(170))].map((q, i) => ({ ...q, sprite: pinkMix(i) })); }
+function buildCone() { return [...lathe(y => 0.9 * (0.9 - y) / 1.8, -0.9, 0.9, N(620)), ...disc(-0.9, 0.9, N(220))].map((q, i) => ({ ...q, sprite: pinkMix(i) })); }
+function buildIcosahedron() {
+  const t = (1 + Math.sqrt(5)) / 2, s = 1 / Math.hypot(1, t);
+  const V = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]].map(v => v.map(c => c * s * 1.15));
+  const adj = (a, b) => Math.abs(Math.hypot(...sub3(V[a], V[b])) - 2 * s * 1.15) < 1e-6, faces = [];
+  for (let a = 0; a < 12; a++) for (let b = a + 1; b < 12; b++) for (let c = b + 1; c < 12; c++) if (adj(a, b) && adj(b, c) && adj(a, c)) faces.push([V[a], V[b], V[c]]);
+  return polyFaces(faces, 48);
+}
+
+// ── Compound objects
+function buildDNA() {
+  const out = [], turns = 2.5, R = 0.5, Hh = 1.2;
+  const strand = ph => t => [R * Math.cos(Math.PI * 2 * turns * t + ph), (t - 0.5) * 2 * Hh, R * Math.sin(Math.PI * 2 * turns * t + ph)];
+  out.push(...tube(strand(0), 0.06, N(420), { sprite: 3 }), ...tube(strand(Math.PI), 0.06, N(420), { sprite: 2 }));
+  for (let k = 0; k < 22; k++) {
+    const t = (k + 0.5) / 22, a = strand(0)(t), b = strand(Math.PI)(t), pair = k % 2 ? [6, 8] : [8, 6];
+    for (let i = 0; i < N(14); i++) { const u = (i + 0.5) / N(14); out.push({ p3: lerp3(a, b, u), sprite: u < 0.5 ? pair[0] : pair[1], sizeScale: 0.8 }); }
+  }
+  return out;
+}
+function buildLantern() {
+  const body = y => 0.74 * (1 - 0.32 * Math.pow(y / 0.9, 2));
+  const out = [...lathe(body, -0.85, 0.85, N(700), { sprite: 8 }).map((q, i) => (i % 4 ? q : { ...q, sprite: 5 }))];
+  for (let y = -0.68; y <= 0.7; y += 0.17) out.push(...lathe(() => body(y) + 0.02, y - 0.01, y + 0.01, N(48), { sprite: 7, sizeScale: 0.7, edge: true }));
+  out.push(...disc(0.9, 0.42, N(90), { sprite: 4, sizeScale: 0.8 }), ...disc(-0.9, 0.42, N(90), { sprite: 4, sizeScale: 0.8 }));
+  out.push(...tube(t => [0.36 * Math.cos(Math.PI * t), 0.9 + 0.36 * Math.sin(Math.PI * t), 0], 0.035, N(70), { sprite: 4, sizeScale: 0.7 }));
+  out.push(...lathe(y => 0.05 + 0.06 * ((-0.9 - y) / 0.45), -1.35, -0.9, N(70), { sprite: 7, sizeScale: 0.75 }));   // tassel
+  return out;
+}
+function buildTorii() {
+  const out = [], red = { sprite: 7 }, dark = { sprite: 4 };
+  for (const sx of [-0.7, 0.7]) out.push(...tube(t => [sx * (1 + 0.04 * (1 - t)), -1 + 1.85 * t, 0], 0.09, N(240), red));
+  const curve = p => [p[0], p[1] + 0.13 * Math.pow(p[0] / 1.15, 2) * (p[0] * p[0] > 0.5 ? 1 : 0.6), p[2]];
+  out.push(...boxSurface([0, 0.97, 0], [1.2, 0.07, 0.11], N(330), dark, curve));           // kasagi
+  out.push(...boxSurface([0, 0.85, 0], [1.05, 0.045, 0.09], N(200), red));                   // shimaki
+  out.push(...boxSurface([0, 0.45, 0], [0.98, 0.05, 0.07], N(200), red));                    // nuki
+  out.push(...boxSurface([0, 0.65, 0], [0.09, 0.15, 0.03], N(50), dark));                    // gakuzuka
+  return out;
+}
+function buildDharma() {
+  const out = [], gold = { sprite: 5 };
+  out.push(...tube(t => [Math.cos(Math.PI * 2 * t), Math.sin(Math.PI * 2 * t), 0], 0.07, N(520), gold));
+  out.push(...sphereAt([0, 0, 0], 0.18, N(130), { sprite: 8 }));
+  for (let k = 0; k < 8; k++) {
+    const a = k * Math.PI / 4, dx = Math.cos(a), dy = Math.sin(a);
+    out.push(...tube(t => [dx * (0.18 + 0.82 * t), dy * (0.18 + 0.82 * t), 0], 0.045, N(55), { sprite: k % 2 ? 5 : 8 }));
+    out.push(...sphereAt([dx * 1.16, dy * 1.16, 0], 0.09, N(34), { sprite: 3 }));
+  }
+  return out;
+}
+
+// ── 2D shapes: draw anything on a small canvas, then sample its pixels. The
+//    outline gets fuller, deeper petals so the silhouette stays crisp.
+function raster(draw, n, aspect, petalScale) {
+  aspect = aspect || 1; petalScale = petalScale || 1; const Wc = Math.round(220 * aspect), Hc = 220, c = document.createElement('canvas'); c.width = Wc; c.height = Hc;
+  const g = c.getContext('2d'); g.fillStyle = '#000'; g.translate(Wc / 2, Hc / 2); g.scale(Hc / 2 * 0.9, Hc / 2 * 0.9); draw(g);
+  const d = g.getImageData(0, 0, Wc, Hc).data, filled = [], edge = [], at = (x, y) => x >= 0 && y >= 0 && x < Wc && y < Hc && d[(y * Wc + x) * 4 + 3] > 80;
+  for (let y = 0; y < Hc; y++) for (let x = 0; x < Wc; x++) if (at(x, y)) { const e = !(at(x - 1, y) && at(x + 1, y) && at(x, y - 1) && at(x, y + 1)); (e ? edge : filled).push([x, y]); }
+  const out = [], toP = ([x, y]) => [((x + 0.5) / Wc * 2 - 1) * aspect, -((y + 0.5) / Hc * 2 - 1), rand(-0.03, 0.03)];
+  const ne = Math.min(edge.length, Math.round(n * 0.42));
+  for (let i = 0; i < ne; i++) out.push({ p3: toP(edge[(Math.random() * edge.length) | 0]), edge: true, sprite: 3, sizeScale: 1.1 * petalScale });
+  for (let i = ne; i < n && filled.length; i++) out.push({ p3: toP(filled[(Math.random() * filled.length) | 0]), sprite: i % 2 ? 1 : 2, sizeScale: 0.9 * petalScale });
+  form.flat = true; return out;
+}
+const poly = (g, k, r0, r1, rot) => { g.beginPath(); for (let i = 0; i < k * 2; i++) { const a = rot + i * Math.PI / k, r = i % 2 ? r1 : r0; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); } g.closePath(); g.fill(); };
+const SHAPES_2D = {
+  circle: g => { g.beginPath(); g.arc(0, 0, 1, 0, Math.PI * 2); g.fill(); },
+  ring: g => { g.beginPath(); g.arc(0, 0, 1, 0, Math.PI * 2); g.arc(0, 0, 0.62, 0, Math.PI * 2, true); g.fill('evenodd'); },
+  square: g => g.fillRect(-0.9, -0.9, 1.8, 1.8),
+  triangle: g => { g.beginPath(); g.moveTo(0, -1); g.lineTo(1, 0.85); g.lineTo(-1, 0.85); g.closePath(); g.fill(); },
+  star: g => poly(g, 5, 1, 0.45, -Math.PI / 2),
+  hexagon: g => poly(g, 6, 1, 1, 0),
+  heart: g => { g.beginPath(); g.moveTo(0, 0.95); g.bezierCurveTo(-1.3, -0.1, -0.7, -1.1, 0, -0.45); g.bezierCurveTo(0.7, -1.1, 1.3, -0.1, 0, 0.95); g.fill(); },
+  spiral: g => { g.lineWidth = 0.11; g.strokeStyle = '#000'; g.beginPath(); for (let i = 0; i <= 200; i++) { const t = i / 200, a = t * Math.PI * 2 * 3, r = 0.08 + 0.92 * t; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); } g.stroke(); },
+};
+function buildText(opts) {
+  const text = (opts && opts.text || 'Mahoraga').slice(0, 24);
+  const m = document.createElement('canvas').getContext('2d'); m.font = '700 100px Inter, sans-serif';
+  const aspect = clamp(m.measureText(text).width / 100 * 1.08, 1, 6);
+  // Letters need small petals and plenty of them, and as much width as the screen allows.
+  form.size = Math.min(0.26, 0.44 * W / Math.min(W, H) / aspect);
+  return raster(g => { g.font = '800 1px Inter, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 0, 0.02); }, N(Math.min(2400, 700 + 140 * text.length)), aspect, 0.5);
+}
+
+// Two wrinkled hemispheres either side of a fissure, sitting on a short stem.
+function buildBrain() {
+  const out = [], n = settings.calm ? 620 : 1300;
+  for (let i = 0; i < n; i++) {
+    const q = sphereSample(i, n), side = i % 2 ? 1 : -1;
+    // Each hemisphere is a dome: only the outer half of a sphere, so the flat
+    // side facing the other dome is empty and the fissure is a real cleft.
+    const x = Math.abs(q[0]), y = q[1], z = q[2];
+    const th = Math.atan2(z, x), ph = Math.acos(clamp(y, -1, 1));
+    // Big folds plus fine detail. Negative is a sulcus, positive a gyrus.
+    const g = Math.sin(3.6 * th + 1.4 * ph) * Math.sin(2.8 * ph + 0.7 * th) * 0.7 + Math.sin(9 * th + 2.5 * ph) * Math.cos(6 * ph) * 0.3;
+    const groove = g < -0.18, rim = x < 0.14;
+    const bulge = groove ? 0.9 : 1 + 0.07 * clamp(g, 0, 1);
+    const front = z > 0 ? 1.08 : 0.96;                       // frontal lobe fuller than the back
+    const px = side * (0.07 + x * 0.9 * bulge), py = (y * 0.7 + 0.03) * bulge, pz = z * 1.02 * bulge * front;
+    if (y < -0.55 && z < -0.1) continue;                     // underside at the back is where the cerebellum sits
+    out.push({ p3: [px, py, pz],
+      dim: rim ? 0.45 : groove ? 0.5 : 0.9 + 0.1 * clamp(g, 0, 1),
+      sizeScale: rim ? 0.65 : groove ? 0.6 : 1.05 + 0.25 * clamp(g, 0, 1),
+      sprite: (rim || groove) ? 4 : (i % 3 ? 2 : 3) });
+  }
+  // Cerebellum: two small, finely lined lobes tucked under the back.
+  const cn = settings.calm ? 90 : 200;
+  for (let i = 0; i < cn; i++) { const [x, y, z] = sphereSample(i, cn), side = i % 2 ? 1 : -1; const lines = Math.sin(16 * Math.acos(clamp(y, -1, 1)));
+    out.push({ p3: [side * (0.2 + Math.abs(x) * 0.3), -0.5 + y * 0.26, -0.7 + z * 0.34], dim: lines < 0 ? 0.5 : 0.85, sizeScale: 0.62, sprite: lines < 0 ? 4 : 3 }); }
+  // Stem.
+  for (let i = 0; i < (settings.calm ? 30 : 70); i++) { const a = rand(0, Math.PI * 2), r = 0.15 * rand(0.7, 1); out.push({ p3: [Math.cos(a) * r, -0.66 - rand(0, 0.42), Math.sin(a) * r - 0.2], dim: 0.65, sizeScale: 0.75, sprite: 4 }); }
+  return out;
+}
+const PLANETS = [
+  { name: 'Mercury', r: 0.045, orbit: 0.62, speed: 1.6, sprite: 7, fact: 'Closest to the sun. A year lasts 88 days.' },
+  { name: 'Venus', r: 0.07, orbit: 0.8, speed: 1.2, sprite: 8, fact: 'Hottest planet, wrapped in clouds of acid.' },
+  { name: 'Earth', r: 0.075, orbit: 1.0, speed: 1.0, sprite: 6, fact: 'Home. One moon, mostly water.' },
+  { name: 'Mars', r: 0.055, orbit: 1.2, speed: 0.8, sprite: 7, fact: 'The red one. Two small moons, tallest volcano.' },
+  { name: 'Jupiter', r: 0.17, orbit: 1.6, speed: 0.45, sprite: 8, fact: 'Largest. A storm bigger than Earth.' },
+  { name: 'Saturn', r: 0.145, orbit: 2.0, speed: 0.34, sprite: 8, fact: 'Rings of ice and rock, thin as paper.', ring: true },
+  { name: 'Uranus', r: 0.1, orbit: 2.36, speed: 0.24, sprite: 6, fact: 'Spins on its side.' },
+  { name: 'Neptune', r: 0.1, orbit: 2.7, speed: 0.19, sprite: 6, fact: 'Farthest. Winds faster than sound.' },
+];
+function buildSolar() {
+  const out = [], k = settings.calm ? 0.45 : 1;
+  form.planets = PLANETS.map((pl, i) => ({ ...pl, ang: rand(0, Math.PI * 2), i }));
+  const sunN = Math.round(300 * k), SUN = 0.36;
+  for (let i = 0; i < sunN; i++) { const q = sphereSample(i, sunN); out.push({ p3: [q[0] * SUN, q[1] * SUN, q[2] * SUN], sprite: i % 4 ? 5 : 8, sizeScale: 1.15, body: 'sun', dim: 1 }); }
+  form.planets.forEach(pl => {
+    const n = Math.round(clamp(pl.r * 900, 26, 130) * k);
+    for (let i = 0; i < n; i++) {
+      const q = sphereSample(i, n), local = [q[0] * pl.r, q[1] * pl.r, q[2] * pl.r];
+      out.push({ local, planet: pl, sizeScale: 0.6 + pl.r * 2.2, body: pl.name, sprite: i % 5 ? pl.sprite : 2 });
+    }
+    if (pl.ring) for (let i = 0; i < Math.round(60 * k); i++) { const a = rand(0, Math.PI * 2), r = pl.r * rand(1.5, 2.2); out.push({ local: [Math.cos(a) * r, rand(-0.004, 0.004), Math.sin(a) * r], planet: pl, sizeScale: 0.45, body: pl.name, sprite: 8 }); }
+  });
+  return out;
+}
+
+
+// ── Map: the streets around a point, made of petals. Data comes from the
+//    server's /map route (OpenStreetMap), already in local metres. The map
+//    lies on the ground plane and grows outward from where you are.
+const URL_LOC = (() => { const q = new URLSearchParams(location.search); const lat = parseFloat(q.get('lat')), lon = parseFloat(q.get('lon')); return isFinite(lat) && isFinite(lon) ? { lat, lon } : null; })();
+const DEFAULT_LOC = { lat: 35.0116, lon: 135.7681 };   // Kyoto, until the browser tells us better
+const MAP_STYLE = {
+  major: { sprite: 8, size: 0.66, w: 2.4, line: 'rgba(255,236,200,.35)' }, road: { sprite: 8, size: 0.52, w: 1.7, line: 'rgba(255,255,255,.3)' },
+  street: { sprite: 2, size: 0.42, w: 1.1, line: 'rgba(255,255,255,.22)' }, minor: { sprite: 1, size: 0.32, w: 0.7, line: 'rgba(255,255,255,.14)' },
+  water: { sprite: 6, size: 0.54, w: 2.2, line: 'rgba(120,170,225,.4)' }, park: { sprite: 9, size: 0.42, w: 1.0, line: 'rgba(110,175,115,.3)' },
+  rail: { sprite: 4, size: 0.36, w: 1.0, line: 'rgba(120,90,120,.3)' },
+};
+async function buildMap(opts) {
+  const lat = opts.lat ?? (URL_LOC || DEFAULT_LOC).lat, lon = opts.lon ?? (URL_LOC || DEFAULT_LOC).lon, radius = opts.radius || 900;
+  const r = await fetch(`/map?lat=${lat}&lon=${lon}&radius=${radius}`); if (!r.ok) throw new Error('map ' + r.status);
+  const data = await r.json(); form.map = data; form.flat = true; form.swayPitch = 1.05; form.swayYaw = 0.14; form.size = 0.36;
+  let total = 0; for (const w of data.ways) for (let i = 1; i < w.p.length; i++) total += Math.hypot(w.p[i][0] - w.p[i - 1][0], w.p[i][1] - w.p[i - 1][1]);
+  const spacing = Math.max(radius / 120, total / N(1800));   // so the whole map is about 1,800 petals
+  const out = [], R = radius;
+  for (const w of data.ways) {
+    const st = MAP_STYLE[w.c] || MAP_STYLE.street; let carry = rand(0, spacing);
+    for (let i = 1; i < w.p.length; i++) {
+      const [ax, ay] = w.p[i - 1], [bx, by] = w.p[i], len = Math.hypot(bx - ax, by - ay); if (!len) continue;
+      let d = carry;
+      for (; d < len; d += spacing) {
+        const t = d / len, x = ax + (bx - ax) * t, y = ay + (by - ay) * t, dist = Math.hypot(x, y);
+        if (dist > R) continue;
+        out.push({ p3: [x / R, 0, -y / R], sprite: st.sprite, sizeScale: st.size, dim: 0.95, delay: dist / R });   // grows outward from you
+      }
+      carry = d - len;
+    }
+  }
+  for (let i = 0; i < N(44); i++) { const a = rand(0, Math.PI * 2), rr = 0.014 * rand(0.3, 1); out.push({ p3: [Math.cos(a) * rr, rand(0, 0.17), Math.sin(a) * rr], sprite: 3, sizeScale: 0.75, delay: 0, dim: 1 }); }   // you are here
+  labelEl.innerHTML = `<div class="h">you are here</div><div class="n">${data.place || `${lat.toFixed(4)}, ${lon.toFixed(4)}`}</div><div class="f">${data.ways.length} ways within ${radius} m · ${data.attribution}</div>`;
+  labelEl.classList.add('show');
+  emit('map.built', { lat, lon, radius, place: data.place, ways: data.ways.length, petals: out.length });
+  return out;
+}
+// Ask the browser where we are, then form the map there. Falls back to the
+// URL's lat/lon, then to the default, and says which it used.
+function locate(opts) {
+  opts = opts || {};
+  const go = (loc, how) => { emit('map.located', { ...loc, how }); showForm('map', { ...opts, ...loc }); };
+  if (opts.lat !== undefined && opts.lon !== undefined) return go({ lat: opts.lat, lon: opts.lon }, 'given');
+  if (!navigator.geolocation) return go(URL_LOC || DEFAULT_LOC, URL_LOC ? 'url' : 'default');
+  labelEl.innerHTML = '<div class="n">Finding you…</div>'; labelEl.classList.add('show'); labelEl.style.left = W / 2 + 'px'; labelEl.style.top = H * 0.4 + 'px';
+  navigator.geolocation.getCurrentPosition(
+    pos => go({ lat: pos.coords.latitude, lon: pos.coords.longitude }, 'geolocation'),
+    err => { emit('map.failed', { reason: err.message }); go(URL_LOC || DEFAULT_LOC, URL_LOC ? 'url' : 'default'); },
+    { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 });
+}
+function drawMapUnderlay() {
+  const m = form.map; if (!m) return; const R = m.radius, S = formSize();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (const w of m.ways) {
+    const st = MAP_STYLE[w.c] || MAP_STYLE.street;
+    ctx.beginPath(); let pen = false;
+    for (let i = 0; i < w.p.length; i++) {
+      const [x, y] = w.p[i]; if (x * x + y * y > R * R * 1.05) { pen = false; continue; }   // clipped to the map's circle
+      const q = project(x / R, 0, -y / R); pen ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); pen = true;
+    }
+    ctx.strokeStyle = st.line; ctx.lineWidth = Math.max(0.6, st.w * S / 260); ctx.stroke();
+  }
+  // Pulse rings spreading from you along the ground.
+  for (let k = 0; k < 2; k++) {
+    const t = (now * 0.5 + k * 0.5) % 1, rr = 0.03 + t * 0.16;
+    ctx.beginPath(); for (let i = 0; i <= 48; i++) { const a = i / 48 * Math.PI * 2, q = project(Math.cos(a) * rr, 0.002, Math.sin(a) * rr); i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); }
+    ctx.strokeStyle = `rgba(255,120,165,${(1 - t) * 0.75})`; ctx.lineWidth = 1.6; ctx.stroke();
+  }
+}
+
+
+// ── Cards: a fanned hand and a face-down stack, every card a pane with its
+//    rank and suit written in petals. Pick a card to lift it; scrub fans.
+const SUITS = { '♠': { name: 'Spades', sprite: 4 }, '♥': { name: 'Hearts', sprite: 7 }, '♦': { name: 'Diamonds', sprite: 7 }, '♣': { name: 'Clubs', sprite: 4 } };
+const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+const RANK_NAMES = { A: 'Ace', J: 'Jack', Q: 'Queen', K: 'King' };
+const CARD = { w: 0.5, h: 0.7 };
+// Sample a card face: rank and small suit in two corners, a big suit in the
+// middle. Returns points in card space (u across, v up, both in [-1, 1]).
+function cardGlyphs(rank, suit) {
+  const Wc = 120, Hc = 168, c = document.createElement('canvas'); c.width = Wc; c.height = Hc; const g = c.getContext('2d');
+  g.fillStyle = '#000'; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  const corner = () => { g.font = '800 40px Inter, sans-serif'; g.fillText(rank, 8, 40); g.font = '32px serif'; g.fillText(suit, 9, 72); };
+  corner(); g.save(); g.translate(Wc, Hc); g.rotate(Math.PI); corner(); g.restore();
+  g.font = '92px serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(suit, Wc / 2, Hc / 2 + 4);
+  const d = g.getImageData(0, 0, Wc, Hc).data, out = [];
+  for (let y = 0; y < Hc; y += 3) for (let x = 0; x < Wc; x += 3) if (d[(y * Wc + x) * 4 + 3] > 90 && Math.random() < 0.75) out.push([((x + 1.5) / Wc) * 2 - 1, -(((y + 1.5) / Hc) * 2 - 1)]);
+  return out;
+}
+function cardWorld(p) {
+  const c = form.cards[p.card], cs = Math.cos(c.rot), sn = Math.sin(c.rot), x = p.local[0] * CARD.w / 2, y = p.local[1] * CARD.h / 2;
+  return [c.x + x * cs - y * sn, c.y + x * sn + y * cs + c.lift * 0.12, c.z - c.lift * 0.28];   // +z is away from the camera
+}
+function cardCorners(c) {
+  const cs = Math.cos(c.rot), sn = Math.sin(c.rot);
+  return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => { const x = u * CARD.w / 2, y = v * CARD.h / 2; return [c.x + x * cs - y * sn, c.y + x * sn + y * cs + c.lift * 0.12, c.z - c.lift * 0.28]; });
+}
+function buildCards(opts) {
+  const out = [], hand = [];
+  const deck = []; for (const su of Object.keys(SUITS)) for (const r of RANKS) deck.push({ rank: r, suit: su });
+  for (let i = 0; i < 7; i++) hand.push(deck.splice((Math.random() * deck.length) | 0, 1)[0]);
+  if (!opts.shuffle && !opts.random) { hand.length = 0; for (const [r, su] of [['A', '♠'], ['K', '♥'], ['Q', '♦'], ['J', '♣'], ['10', '♥'], ['9', '♠'], ['7', '♦']]) hand.push({ rank: r, suit: su }); }
+  form.cards = []; form.spread = 1; form.faceList = []; form.pane = [250, 246, 238]; form.flat = true; form.swayYaw = 0.1; form.swayPitch = 0.12; form.size = 0.3;
+  // The fan: seven cards on an arc, as if held in a hand.
+  hand.forEach((cd, i) => {
+    const card = { x: 0, y: 0, z: -i * 0.012, rot: 0, lift: 0, liftT: 0, i, rank: cd.rank, suit: cd.suit, name: `${RANK_NAMES[cd.rank] || cd.rank} of ${SUITS[cd.suit].name}`, fan: true };
+    form.cards.push(card);
+    const face = form.faceList.length; form.faceList.push(cardCorners(card));
+    for (let k = 0; k < N(56); k++) { const u = k / N(56) * 4, side = Math.floor(u), t = u - side, e = [[-1 + 2 * t, -1], [1, -1 + 2 * t], [1 - 2 * t, 1], [-1, 1 - 2 * t]][side]; out.push({ local: e, card: form.cards.length - 1, face, edge: true, sizeScale: 0.42, sprite: pickNatural(), world: cardWorld, delay: 0.2 + i * 0.08 }); }
+    for (const [u, v] of cardGlyphs(cd.rank, cd.suit)) out.push({ local: [u * 0.98, v * 0.98], card: form.cards.length - 1, face, edge: true, sizeScale: 0.34, sprite: SUITS[cd.suit].sprite, dim: 0.85, world: cardWorld, delay: 0.35 + i * 0.08 });
+  });
+  // The stack: face-down cards off to the side, a petal lattice on the top back.
+  const STACK = 12;
+  for (let k = 0; k < STACK; k++) {
+    const card = { x: -1.15 - (STACK - 1 - k) * 0.006, y: -0.2 - (STACK - 1 - k) * 0.007, z: 0.08 - k * 0.014, rot: rand(-0.03, 0.03), lift: 0, liftT: 0, i: 7 + k, stack: true, name: 'the deck' };
+    form.cards.push(card); const face = form.faceList.length; form.faceList.push(cardCorners(card));
+    const n = k === STACK - 1 ? N(56) : N(18);
+    for (let j = 0; j < n; j++) { const u = j / n * 4, side = Math.floor(u), t = u - side, e = [[-1 + 2 * t, -1], [1, -1 + 2 * t], [1 - 2 * t, 1], [-1, 1 - 2 * t]][side]; out.push({ local: e, card: form.cards.length - 1, face, edge: true, sizeScale: 0.4, sprite: pickNatural(), world: cardWorld, delay: 0.05 + k * 0.03 }); }
+    if (k === STACK - 1) for (let r = 0; r < 7; r++) for (let q = 0; q < 5; q++) out.push({ local: [-0.7 + q * 0.35, -0.8 + r * 0.2667], card: form.cards.length - 1, face, edge: true, sizeScale: 0.3, sprite: (r + q) % 2 ? 4 : 8, dim: 0.8, world: cardWorld, delay: 0.5 });
+  }
+  layoutCards(); form.cards.forEach((c, i) => { form.faceList[i] = cardCorners(c); }); form.faces = 'solid';
+  return out;
+}
+function layoutCards() {
+  const fan = form.cards.filter(c => c.fan), n = fan.length, pivotY = -1.35, R = 1.55;
+  fan.forEach((c, k) => {
+    const a = (k - (n - 1) / 2) * 0.2 * form.spread;
+    c.rot = -a; c.x = 0.12 + Math.sin(a) * R; c.y = pivotY + Math.cos(a) * R;
+  });
+}
+function cardPick(x, y) {
+  let best = null, bestD = Infinity;
+  for (const c of form.cards) {
+    if (!c.fan) continue;
+    const q = project(c.x, c.y + 0.1, c.z - c.lift * 0.28), d = Math.hypot(q.x - x, q.y - y);
+    if (d < CARD.h * 0.5 * formSize() * q.f + 10 && d < bestD) { best = c; bestD = d; }
+  }
+  if (!best) { emit('pick.missed', { x, y }); return false; }
+  if (form.picked === best) { best.liftT = 0; form.picked = null; labelEl.classList.remove('show'); emit('unpicked', {}); return true; }
+  for (const c of form.cards) c.liftT = 0;
+  best.liftT = 1; form.picked = best;
+  labelEl.innerHTML = `<div class="n">${best.name}</div><div class="h">pick again to put it back · shuffle for a new hand</div>`; labelEl.classList.add('show');
+  emit('picked', { name: best.name }); return true;
+}
+function cardsStep(dt) {
+  let moved = false;
+  for (const c of form.cards) { const l = c.lift; c.lift += (c.liftT - c.lift) * (1 - Math.pow(0.02, dt)); if (Math.abs(c.lift - l) > 1e-4) moved = true; }
+  if (moved || form.spreadDirty) { form.cards.forEach((c, i) => { form.faceList[i] = cardCorners(c); }); form.spreadDirty = false; }
+  if (form.picked) { const q = project(form.picked.x, form.picked.y + CARD.h / 2 + 0.1, form.picked.z - 0.3); labelEl.style.left = q.x + 'px'; labelEl.style.top = (q.y - 70) + 'px'; }
+}
+
+// ── The registry. group is only for the dev panel.
+const FORMS = {
+  cube: { build: buildCube, group: '3D' }, sphere: { build: buildSphere, group: '3D' }, torus: { build: buildTorus, group: '3D' },
+  pyramid: { build: buildPyramid, group: '3D' }, cylinder: { build: buildCylinder, group: '3D' }, cone: { build: buildCone, group: '3D' },
+  icosahedron: { build: buildIcosahedron, group: '3D' },
+  dna: { build: buildDNA, group: 'compound', label: 'DNA helix' }, lantern: { build: buildLantern, group: 'compound' },
+  torii: { build: buildTorii, group: 'compound', label: 'Torii gate', flat: true }, dharma: { build: buildDharma, group: 'compound', label: 'Dharma wheel', flat: true },
+  brain: { build: buildBrain, group: 'compound' }, solar: { build: buildSolar, group: 'compound', label: 'Solar system', size: 0.14, cam: { pitch: 0.55, yaw: 0.3 } },
+  ...Object.fromEntries(Object.entries(SHAPES_2D).map(([k, draw]) => [k, { build: () => raster(draw, N(k === 'spiral' ? 700 : 900), 1, k === 'spiral' ? 0.7 : 1), group: '2D' }])),
+  text: { build: buildText, group: '2D' },
+  map: { build: buildMap, group: 'compound', label: 'Map (here)', locate: true },
+  cards: { build: buildCards, group: 'compound', label: 'Deck of cards' },
+};
+function planetCenter(pl) { return [Math.cos(pl.ang) * pl.orbit, 0, Math.sin(pl.ang) * pl.orbit]; }
+function planetWorld(p) { const c = planetCenter(p.planet); return [c[0] + p.local[0], c[1] + p.local[1], c[2] + p.local[2]]; }
+
+let formToken = 0;
+async function showForm(kind, opts) {
+  const def = FORMS[kind]; if (!def) { console.warn('MahoragaTabs: unknown form', kind); return; }
+  if (form.kind) dismissForm(true);
+  const token = ++formToken;
+  form.kind = kind; form.picked = null; form.settled = 0; form.total = 0; form.petals = []; form.planets = []; form.faceList = null; form.flat = false; form.map = null;
+  form.swayPitch = undefined; form.swayYaw = undefined; form.size = def.size || 0.19; form.breath = 0; form.cards = null; form.pane = null;
+  cam.zoom = cam.zoomT = 1; cam.focus = [0, 0, 0]; cam.focusT = [0, 0, 0]; cam.vyaw = 0.25; cam.vpitch = 0;
+  cam.pitch = def.cam ? def.cam.pitch : 0.35; cam.yaw = def.cam ? def.cam.yaw : 0.6;
+  let spec;
+  try { spec = await def.build(opts || {}); }
+  catch (e) { console.warn('form failed', e); if (token === formToken) { form.kind = null; labelEl.classList.remove('show'); layoutDeck(); emit('form.failed', { kind, error: String(e) }); } return; }
+  if (token !== formToken) return;     // something newer was asked for while this one was loading
+  if (def.flat) form.flat = true;      // planar objects sway to face you instead of spinning edge-on
+  if (form.flat) { cam.pitch = form.swayPitch ?? 0.1; cam.yaw = 0.25; cam.vyaw = 0; }
+  form.total = spec.length;
+  if (active()) { settleNow(active()); releaseBorder(active()); }
+  if (thinking) setThinking(false);
+  layoutDeck();
+  blow(W / 2, H * 0.24, W / 2, H * 0.44, 120);
+  spec.forEach(sp => {
+    const s = canopyPoint(), p = makePetal(s.x, s.y);
+    const keep = p.sprite; Object.assign(p, sp); if (p.sprite === undefined || p.sprite === null) p.sprite = keep;   // builders may leave the tint alone
+    if (p.sprite < 4 && sprites === realSprites) p.sprite = pickNatural();   // 'pink' on the real sheet means any natural petal
+    if (sp.planet) p.world = planetWorld;
+    if (sp.world) p.world = sp.world;
+    p.form = form; p.follow = followForm; p.delay = sp.delay !== undefined ? sp.delay * 1.6 + rand(0, 0.2) : rand(0, 0.9); p.alphaT = 1;
+    startFlight(p, s, followForm(p), settings.duration * rand(0.8, 1.3)); p.wobA *= 0.7;
+    form.petals.push(p); petals.push(p);
+  });
+  form.onSettle = () => { form.settled++; };
+  applyFaces(); updateFacesButton();
+  emit('form.shown', { kind, petals: spec.length });
+}
+function dismissForm(quiet) {
+  if (!form.kind) return;
+  const kind = form.kind;
+  for (const p of form.petals) { startFall(p, rand(0, 0.5)); p.fall *= 1.4; p.die = now + rand(1.4, 2.6); p.ds = 1; p.da = 1; }
+  form.petals = []; form.kind = null; form.picked = null; form.planets = []; form.faceList = null; form.flat = false; form.map = null; form.cards = null;
+  labelEl.classList.remove('show'); layoutDeck(); updateFacesButton();
+  if (!quiet) { if (active()) setTimeout(() => { if (!form.kind && active()) outline(active(), 0.8); }, 400); emit('form.dismissed', { kind }); }
+}
+// Face modes for any flat-faced solid: leaves (every petal), glass (edges +
+// a see-through pane), solid (edges + a gray pane that hides what is behind).
+function setFaces(mode) {
+  const modes = ['leaves', 'glass', 'solid'];
+  form.faces = modes.includes(mode) ? mode : modes[(modes.indexOf(form.faces) + 1) % modes.length];
+  applyFaces(); updateFacesButton(); emit('form.faces', { mode: form.faces });
+}
+function applyFaces() { if (!form.faceList) return; for (const p of form.petals) p.alphaT = (p.edge || form.faces === 'leaves') ? 1 : 0; }
+function updateFacesButton() { const b = document.getElementById('b-faces'); if (!b) return; b.innerHTML = `<kbd>F</kbd>Faces: ${form.faces}`; b.style.display = form.faceList ? '' : 'none'; }
+
+// Pick a planet under a screen point: the camera swings to it and zooms.
+function pick(x, y) {
+  if (form.cards) return cardPick(x, y);
+  if (form.kind !== 'solar') return false;
+  let best = null, bestD = Infinity;
+  for (const pl of form.planets) {
+    const c = planetCenter(pl), q = project(c[0], c[1], c[2]);
+    const rad = pl.r * formSize() * q.f + 16, d = Math.hypot(q.x - x, q.y - y);
+    if (d < rad * 1.4 && d < bestD) { best = pl; bestD = d; }
+  }
+  if (!best) { const q = project(0, 0, 0); if (Math.hypot(q.x - x, q.y - y) < 0.36 * formSize() * q.f + 16) best = { name: 'Sun', sun: true, r: 0.36, fact: 'The star everything else circles.' }; }
+  if (!best) { emit('pick.missed', { x, y }); return false; }
+  form.picked = best; cam.zoomT = best.sun ? 2.2 : 3.2;
+  for (const p of form.petals) p.dim = (p.body === best.name || (best.sun && p.body === 'sun')) ? 1 : 0.45;
+  labelEl.innerHTML = `<div class="n">${best.name}</div><div class="f">${best.fact}</div><div class="h">grab to orbit · scale to zoom · unpick to return</div>`;
+  labelEl.classList.add('show');
+  emit('picked', { name: best.name }); return true;
+}
+function unpick() {
+  if (!form.picked) return;
+  if (form.cards) { form.picked.liftT = 0; form.picked = null; labelEl.classList.remove('show'); emit('unpicked', {}); return; }
+  form.picked = null; cam.zoomT = 1; cam.focusT = [0, 0, 0];
+  for (const p of form.petals) p.dim = 1;
+  labelEl.classList.remove('show'); emit('unpicked', {});
+}
+function formRotate(dx, dy) { cam.yaw += dx * 0.006; cam.pitch = clamp(cam.pitch - dy * 0.006, -1.4, 1.4); cam.vyaw = 0; cam.vpitch = 0; }
+function formZoom(f) { cam.zoomT = clamp(cam.zoomT * f, 0.35, 4); emit('form.zoom', { zoom: cam.zoomT }); }
+
+function formStep(dt) {
+  if (!form.kind) return;
+  const holding = [...hands.values()].some(h => h.grab);
+  cam.yaw += cam.vyaw * dt; cam.pitch = clamp(cam.pitch + cam.vpitch * dt, -1.4, 1.4);
+  if (!holding) {
+    if (form.flat) {
+      // A flat shape sways to face you rather than turning edge-on.
+      cam.vyaw *= Math.pow(0.15, dt); cam.vpitch *= Math.pow(0.15, dt);
+      const ya = form.swayYaw ?? 0.35, pb = form.swayPitch ?? 0.1;
+      cam.yaw += (ya * Math.sin(now * 0.5) - cam.yaw) * (1 - Math.pow(0.4, dt));
+      cam.pitch += (pb + 0.06 * Math.sin(now * 0.7) - cam.pitch) * (1 - Math.pow(0.4, dt));
+    } else { cam.vyaw += (0.12 - cam.vyaw) * (1 - Math.pow(0.5, dt)); cam.vpitch *= Math.pow(0.2, dt); }
+  }
+  cam.zoom += (cam.zoomT - cam.zoom) * (1 - Math.pow(0.05, dt));
+  if (form.kind === 'solar') {
+    for (const pl of form.planets) pl.ang += pl.speed * 0.25 * dt;
+    if (form.picked && !form.picked.sun) cam.focusT = planetCenter(form.picked);
+  }
+  if (form.kind === 'brain') form.breath = 1 + 0.02 * Math.sin(now * 2.1);
+  if (form.cards) cardsStep(dt);
+  for (let i = 0; i < 3; i++) cam.focus[i] += (cam.focusT[i] - cam.focus[i]) * (1 - Math.pow(0.03, dt));
+  if (form.map) { const q = project(0, 0, -1.08); labelEl.style.left = clamp(q.x, 160, W - 160) + 'px'; labelEl.style.top = clamp(q.y - 92, 14, H - 120) + 'px'; }
+  if (form.picked) { const c = form.picked.sun ? [0, 0, 0] : planetCenter(form.picked), q = project(c[0], c[1], c[2]); labelEl.style.left = q.x + 'px'; labelEl.style.top = (q.y + form.picked.r * formSize() * q.f + 14) + 'px'; }
+}
+function drawForm() {
+  if (!form.kind && !form.petals.length) return;
+  const S = formSize();
+  if (form.faceList && form.faces !== 'leaves') {
+    // Painter's order: each face's pane, then the petals riding on it.
+    const faces = form.faceList.map((corners, fi) => {
+      const pc = corners.map(w => project(w[0], w[1], w[2]));
+      const n = norm3(cross(sub3(corners[1], corners[0]), sub3(corners[2], corners[0])));
+      const [nx, ny, nz] = rot3(n[0], n[1], n[2]);
+      return { fi, corners: pc, depth: pc.reduce((a, c) => a + c.z, 0) / pc.length, light: 0.72 + 0.28 * clamp(Math.abs(-nz * 0.6 + ny * 0.5) + 0.2, 0, 1) };
+    }).sort((a, b) => b.depth - a.depth);
+    const byFace = form.faceList.map(() => []);
+    for (const p of form.petals) if (p.mode === 'form' && p.face !== undefined) byFace[p.face].push(p);
+    for (const f of faces) {
+      ctx.beginPath(); f.corners.forEach((c, i) => i ? ctx.lineTo(c.x, c.y) : ctx.moveTo(c.x, c.y)); ctx.closePath();
+      if (form.faces === 'solid') {
+        const [pr, pg, pb] = form.pane || [215, 205, 217], l = 0.8 + 0.2 * f.light;
+        ctx.fillStyle = `rgba(${Math.round(pr * l)},${Math.round(pg * l)},${Math.round(pb * l)},0.95)`; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1; ctx.stroke();
+      }
+      else { ctx.fillStyle = `rgba(255,255,255,${0.06 + 0.08 * f.light})`; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1.2; ctx.stroke(); }
+      byFace[f.fi].sort((a, b) => b.depth - a.depth).forEach(drawPetal);
+    }
+    for (const p of form.petals) if (p.mode !== 'form') drawPetal(p);
+    return;
+  }
+  if (form.map) drawMapUnderlay();
+  if (form.kind === 'solar') {
+    ctx.lineWidth = 1;
+    for (const pl of form.planets) {
+      ctx.beginPath();
+      for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2, q = project(Math.cos(a) * pl.orbit, 0, Math.sin(a) * pl.orbit); i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); }
+      ctx.strokeStyle = `rgba(110,60,105,${form.picked && form.picked !== pl ? 0.1 : 0.32})`; ctx.stroke();
+    }
+    const q = project(0, 0, 0), r = 0.36 * S * q.f * 1.9;
+    const g = ctx.createRadialGradient(q.x, q.y, r * 0.2, q.x, q.y, r); g.addColorStop(0, 'rgba(255,214,150,.45)'); g.addColorStop(1, 'rgba(255,214,150,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  const sorted = form.petals.filter(p => p.mode === 'form').sort((a, b) => b.depth - a.depth);
+  for (const p of sorted) drawPetal(p);
+  for (const p of form.petals) if (p.mode !== 'form') drawPetal(p);
+}
+
+// ── Hands: a petal cursor per hand, and the continuous gestures ────────────
+const hands = new Map();
+function handSeen(id, x, y, pinch) {
+  let h = hands.get(id);
+  if (!h) {
+    h = { x, y, pinch: 0, cursor: [] }; hands.set(id, h);
+    const n = settings.calm ? 4 : 7;
+    for (let i = 0; i < n; i++) {
+      const p = makePetal(x, y); p.mode = 'cursor'; p.hand = h; p.ang = (i / n) * Math.PI * 2; p.angV = rand(2.2, 3.4);
+      p.size *= 0.7; p.alpha = 0; p.fadeIn = true; h.cursor.push(p); petals.push(p);
+    }
+  }
+  h.x = x; h.y = y; h.pinch = clamp(pinch || 0, 0, 1);
+}
+function handLost(id) {
+  const h = hands.get(id); if (!h) return;
+  for (const p of h.cursor) { startFall(p, rand(0, 0.2)); p.die = now + rand(0.5, 1.0); }
+  if (h.grab) grabEnd(id, h.x, h.y, 0, 0);
+  if (h.scrub) scrubEnd(id, 0);
+  hands.delete(id);
+}
+function grabStart(id, x, y) {
+  const h = hands.get(id) || (handSeen(id, x, y, 1), hands.get(id));
+  if (form.kind) { h.grab = { x, y, t: now, form: true, moved: 0 }; cam.vyaw = 0; cam.vpitch = 0; return; }
+  const f = frontRect(), tab = active();
+  if (!tab || x < f.x - 24 || x > f.x + f.w + 24 || y < f.y - 24 || y > f.y + f.h + 24) { emit('grab.rejected', { id, x, y }); return; }
+  h.grab = { x, y, t: now }; tab.el.classList.add('direct');
+}
+function grabMove(id, x, y) {
+  const h = hands.get(id); if (!h || !h.grab) { if (h) { h.x = x; h.y = y; } return; }
+  h.x = x; h.y = y;
+  if (h.grab.form) { h.grab.moved += Math.hypot(x - h.grab.x, y - h.grab.y); formRotate(x - h.grab.x, y - h.grab.y); h.grab.x = x; h.grab.y = y; return; }
+  moveBy(x - h.grab.x, y - h.grab.y); h.grab.x = x; h.grab.y = y;
+}
+// Letting go decides by velocity: a sideways throw riffles, a throw down at
+// the pool closes, anything else is a drop. Thresholds are in px/s.
+function grabEnd(id, x, y, vx, vy) {
+  const h = hands.get(id); if (!h || !h.grab) return;
+  if (h.grab.form) {
+    // A pinch that did not travel is a pick; a throw keeps the form spinning.
+    const tap = h.grab.moved < 8 && Math.hypot(vx, vy) < 300; h.grab = null;
+    if (tap) { if (!pick(x, y) && form.picked) unpick(); }
+    else { cam.vyaw = clamp(vx * 0.004, -4, 4); cam.vpitch = clamp(-vy * 0.004, -4, 4); }
+    return;
+  }
+  h.grab = null; const tab = active(); if (tab) tab.el.classList.remove('direct');
+  const f = frontRect();
+  if (vy > config.throwSpeed && vy > Math.abs(vx) * 1.2 || f.y + f.h / 2 > waterline()) { closeActive(); return; }
+  if (Math.abs(vx) > config.flickSpeed && Math.abs(vx) > Math.abs(vy) * 1.2) { rotateDeck(vx > 0 ? -1 : 1); return; }
+  const r = frontRect(); for (let i = 0; i < 6; i++) { const p = makePetal(rand(r.x, r.x + r.w), r.y + r.h); startFall(p, 0); p.die = now + 1; petals.push(p); }
+}
+function scrubStart(id, x) {
+  const h = hands.get(id) || (handSeen(id, x, H / 2, 1), hands.get(id));
+  if (form.cards) { h.scrub = true; h.scrubX0 = x; h.spread0 = form.spread; return; }
+  if (tabs.length < 2) return;
+  h.scrub = true; scrub.on = true; scrub.x0 = x; scrub.s0 = scrub.s;
+  for (const t of tabs) t.el.classList.add('direct');
+}
+function scrubMove(id, x) {
+  const h = hands.get(id); if (!h || !h.scrub) return;
+  if (form.cards) { form.spread = clamp(h.spread0 + (x - h.scrubX0) / (W * 0.25), 0.15, 2.2); layoutCards(); form.spreadDirty = true; emit('cards.fanned', { spread: form.spread }); return; }
+  h.x = x; scrub.s = scrub.s0 + (scrub.x0 - x) / (base.w * view.scale * 0.45); layoutDeck(true);
+}
+function scrubEnd(id, vx) {
+  const h = hands.get(id); if (!h || !h.scrub) return;
+  if (form.cards) { h.scrub = false; return; }
+  h.scrub = false; scrub.on = false;
+  let target = Math.round(scrub.s - vx / config.scrubCardsPerSecond);
+  rotateDeck(target);
+  if (!target) { for (const t of tabs) t.el.classList.remove('direct'); layoutDeck(); }
+}
+function stretchStart(id, distance) { const h = hands.get(id) || (handSeen(id, W / 2, H / 2, 1), hands.get(id)); h.stretch = { d0: distance || 1, s0: view.scale, z0: cam.zoomT }; }
+function stretchMove(id, distance) { const h = hands.get(id); if (!h || !h.stretch) return; if (form.kind) { cam.zoomT = clamp(h.stretch.z0 * (distance / h.stretch.d0), 0.35, 4); return; } scaleTo(h.stretch.s0 * (distance / h.stretch.d0)); }
+function stretchEnd(id) { const h = hands.get(id); if (h) h.stretch = null; }
+
+// ── Live: the deck mirrors what the agent is doing ─────────────────────────
+// The service streams its sessions over Server-Sent Events (`GET /v1/live`).
+// A task starting summons a frame; each screenshot becomes the frame's page;
+// a navigation runs a wave around the border; clicks and typing send petals
+// to the element the agent touched; a finished task settles and dims.
+const LIVE_KINDS = ['task.started', 'step', 'navigate', 'title', 'screenshot', 'tab.opened', 'tab.closed', 'task.finished', 'task.failed'];
+const live = { es: null, base: '', on: false, status: 'off', tries: 0, timer: null, sessions: new Map() };
+function liveConnect(base) {
+  liveDisconnect(true);
+  live.base = (base || '').replace(/\/$/, ''); live.on = true; live.status = 'connecting';
+  let es; try { es = new EventSource(live.base + '/v1/live'); } catch (e) { live.on = false; live.status = 'off'; emit('live.failed', { error: String(e) }); return; }
+  live.es = es;
+  es.onopen = () => { live.tries = 0; live.status = 'on'; setPressed('b-live', true); emit('live.connected', { url: live.base + '/v1/live' }); };
+  es.addEventListener('snapshot', e => liveSnapshot(JSON.parse(e.data)));
+  for (const k of LIVE_KINDS) es.addEventListener(k, e => liveEvent(JSON.parse(e.data)));
+  es.onerror = () => {
+    if (es.readyState !== EventSource.CLOSED) { live.status = 'reconnecting'; return; }   // EventSource retries on its own
+    // The server answered but not with a stream (a static host, or the route is gone): back off and try again.
+    es.close(); live.es = null; live.status = 'off'; setPressed('b-live', false);
+    const wait = Math.min(30, 2 * 2 ** live.tries++);
+    emit('live.disconnected', { retryIn: wait });
+    if (live.on) live.timer = setTimeout(() => { if (live.on) liveConnect(live.base); }, wait * 1000);
+  };
+}
+function liveDisconnect(quiet) {
+  clearTimeout(live.timer); live.timer = null;
+  if (live.es) { live.es.close(); live.es = null; }
+  const was = live.on; live.on = false; live.status = 'off'; setPressed('b-live', false);
+  if (was && !quiet) emit('live.disconnected', {});
+}
+function liveSession(id) {
+  let s = live.sessions.get(id);
+  if (!s) { s = { id, tabs: new Map(), main: null, current: null, status: 'running', task: '' }; live.sessions.set(id, s); }
+  return s;
+}
+const sessionTabs = s => tabs.filter(t => t.session === s);
+// Summon a frame for a session (or one of its tabs) and remember which is which.
+function liveSummon(s, info) {
+  const site = { name: info.title || info.host || (info.url ? hostOf(info.url) : '') || 'mahoraga', url: info.url || '', accent: '#e8a3bb',
+    step: s.task ? 'Summoned · ' + s.task : 'Summoned', live: { session: s.id, target: info.target || null, task: s.task } };
+  const tab = summon(site); tab.session = s;
+  if (info.target) s.tabs.set(info.target, tab);
+  if (!s.main) s.main = tab;
+  s.current = tab; return tab;
+}
+function hostOf(url) { try { return new URL(url).hostname || url; } catch (e) { return url; } }
+// Which of a session's frames an event is about: by target, then by url, else the current one.
+function liveTabFor(s, ev) {
+  if (ev.target && s.tabs.get(ev.target)) return s.tabs.get(ev.target);
+  if (ev.url && ev.url !== 'about:blank') for (const t of sessionTabs(s)) if (t.site.url === ev.url) return t;
+  return (s.current && tabs.includes(s.current)) ? s.current : (tabs.includes(s.main) ? s.main : null);
+}
+function setChrome(tab, ev) {
+  if (ev.url && ev.url !== 'about:blank') { tab.site.url = ev.url; tab.el.querySelector('.url').textContent = ev.url; }
+  const host = ev.host || (ev.url && ev.url !== 'about:blank' ? hostOf(ev.url) : ''), name = (ev.title || '').trim() || host;
+  if (name) { tab.site.name = host || name; tab.el.querySelector('.name').textContent = name.length > 34 ? name.slice(0, 33) + '…' : name; }
+}
+function setStep(tab, text) { tab.site.step = text; tab.el.querySelector('.step').textContent = text.length > 60 ? text.slice(0, 59) + '…' : text; }
+function liveShot(tab, src) {
+  const img = tab.el.querySelector('img.shot'); if (!img) return;
+  const next = new Image();
+  next.onload = () => { img.src = next.src; img.classList.add('on'); tab.shot = { w: next.naturalWidth, h: next.naturalHeight }; const w = tab.el.querySelector('.wait'); if (w) w.remove(); };
+  next.src = src;
+}
+// The frame's page area on screen, and where a viewport fraction lands on the cropped screenshot.
+function pageArea(tab) { const f = frontRect(), c = 44 * view.scale; return { x: f.x, y: f.y + c, w: f.w, h: f.h - c }; }
+function atToScreen(tab, at) {
+  const a = pageArea(tab), cx = at.x + (at.w || 0) / 2, cy = at.y + (at.h || 0) / 2;
+  if (!tab.shot) return { x: a.x + cx * a.w, y: a.y + cy * a.h, w: (at.w || 0) * a.w };
+  const sc = Math.max(a.w / tab.shot.w, a.h / tab.shot.h), dw = tab.shot.w * sc, dh = tab.shot.h * sc;
+  return { x: clamp(a.x + a.w / 2 + (cx - 0.5) * dw, a.x + 8, a.x + a.w - 8), y: clamp(a.y + cy * dh, a.y + 8, a.y + a.h - 8), w: (at.w || 0) * dw };
+}
+// Typing: a few petals settle across the field, then fade.
+function typeTell(x, y, w) {
+  const tab = active(); if (!tab) return; const f = frontRect(), n = settings.calm ? 4 : 7, span = Math.max(40, Math.min(w || 120, 260));
+  for (let i = 0; i < n; i++) {
+    const s = { x: x + rand(-60, 60), y: f.y - rand(10, 40) }, t = { x: x - span / 2 + span * (i + 0.5) / n + rand(-6, 6), y: y + rand(-4, 4) }, p = makePetal(s.x, s.y);
+    startFlight(p, s, t, rand(0.6, 0.9)); p.delay = i * 0.09; p.wobA *= 0.5; p.edge = false; p.keep = false; p.fadeOnSettle = true; p.smallRipple = i === 0; p.tab = tab; petals.push(p);
+  }
+}
+// A navigation: a wave around the border and a breeze of petals across the page.
+function navTell(tab) {
+  for (const p of petals) if (p.tab === tab && p.mode === 'border') p.wave = now;
+  if (tab !== active()) return;
+  const f = frontRect(), n = settings.calm ? 8 : 18;
+  blow(f.x, f.y + f.h / 2, f.x + f.w, f.y + f.h / 2, 90);
+  for (let i = 0; i < n; i++) {
+    const y = rand(f.y + 50, f.y + f.h - 20), s = { x: f.x - rand(0, 40), y }, t = { x: f.x + f.w + rand(10, 60), y: y + rand(-30, 30) }, p = makePetal(s.x, s.y);
+    startFlight(p, s, t, rand(0.7, 1.1)); p.delay = rand(0, 0.35); p.edge = false; p.keep = false; p.fadeOnSettle = true; p.tab = tab; petals.push(p);
+  }
+}
+function tells(tab, actions) {
+  if (tab !== active() || !actions) return;
+  actions.forEach((act, i) => setTimeout(() => {
+    if (tab !== active() || tab.state !== 'held') return;
+    const f = frontRect();
+    if (act.kind === 'click' && act.at) { const q = atToScreen(tab, act.at); clickTell(q.x, q.y); }
+    else if (act.kind === 'type' && act.at) { const q = atToScreen(tab, act.at); typeTell(q.x, q.y, q.w); }
+    else if (act.kind === 'scroll') blow(f.x + f.w / 2, f.y, f.x + f.w / 2, f.y + f.h, 60);
+  }, 250 + i * 450));
+}
+// A finished task settles its frames: the border calms, the page dims.
+function settleTab(tab, ok, text) {
+  settleNow(tab); tab.done = ok ? 'done' : 'failed'; tab.el.classList.add(tab.done);
+  setStep(tab, (ok ? 'Done' : 'Failed') + (text ? ' · ' + text : ''));
+  const f = frontRect();
+  for (const p of petals) if (p.tab === tab && p.mode === 'border') {
+    p.calmAt = now;
+    if (!ok && Math.random() < 0.35) { startFall(p, rand(0, 0.3)); p.fall *= 1.4; p.die = now + rand(1.5, 2.5); }
+  }
+  if (!ok && tab === active()) blow(f.x + f.w / 2, f.y + f.h / 2, f.x + f.w / 2, f.y - 300, 140);
+  if (thinking && tab === active()) setThinking(false);
+  layoutDeck();
+}
+function removeTab(tab) {
+  if (!tabs.includes(tab)) return;
+  if (tab === active()) return closeActive();
+  tabs.splice(tabs.indexOf(tab), 1); releaseBorder(tab);
+  tab.state = 'sinking'; tab.el.classList.remove('active', 'direct'); tab.el.classList.add('sinking');
+  setTimeout(() => tab.el.remove(), 1100);
+  emit('tab.closed', { tab: tab.id, site: tab.site.name }); layoutDeck(); emit('deck.changed', deckInfo());
+}
+function liveSnapshot(snap) {
+  for (const sess of snap.sessions || []) {
+    if (live.sessions.has(sess.session) || sess.status !== 'running') continue;
+    const s = liveSession(sess.session); s.task = sess.task || '';
+    const first = (sess.tabs || []).find(t => t.url && t.url !== 'about:blank') || (sess.tabs || [])[0];
+    const tab = liveSummon(s, { url: sess.url, title: sess.title, host: sess.host, target: first ? first.target : null });
+    if (sess.step) setStep(tab, `Step ${sess.step}${sess.goal ? ' · ' + sess.goal : ''}`);
+    if (sess.screenshot) liveShot(tab, `${live.base}/v1/live/screenshot/${sess.session}?s=${sess.screenshot}`);
+  }
+}
+function liveEvent(ev) {
+  const s = liveSession(ev.session);
+  if (ev.kind === 'task.started') {
+    s.task = ev.task || ''; const tab = liveSummon(s, { task: s.task });
+    emit('task.started', { session: s.id, task: s.task, tab: tab.id }); return;
+  }
+  if (ev.kind === 'tab.opened') {
+    const blank = !ev.url || ev.url === 'about:blank';
+    if (s.main && tabs.includes(s.main) && !s.main.site.live.target) { s.main.site.live.target = ev.target; s.tabs.set(ev.target, s.main); if (!blank) setChrome(s.main, ev); }
+    else if (!blank) liveSummon(s, ev);
+    return;
+  }
+  if (ev.kind === 'tab.closed') {
+    const tab = s.tabs.get(ev.target); if (!tab) return; s.tabs.delete(ev.target);
+    if (tab === s.main && s.status === 'running') { tab.site.live.target = null; return; }   // the main frame follows the session's next page
+    removeTab(tab); return;
+  }
+  const tab = liveTabFor(s, ev); if (!tab) return;
+  if (ev.kind === 'navigate') { setChrome(tab, ev); s.current = tab; navTell(tab); emit('agent.navigated', { session: s.id, tab: tab.id, url: ev.url, title: ev.title }); }
+  else if (ev.kind === 'title') setChrome(tab, ev);
+  else if (ev.kind === 'step') { setStep(tab, `Step ${ev.n}${ev.goal ? ' · ' + ev.goal : ''}`); tells(tab, ev.actions); emit('agent.step', { session: s.id, tab: tab.id, n: ev.n, goal: ev.goal, actions: ev.actions }); }
+  else if (ev.kind === 'screenshot') { s.current = tab; liveShot(tab, ev.src || `${live.base}/v1/live/screenshot/${s.id}?s=${ev.seq}`); }
+  else if (ev.kind === 'task.finished' || ev.kind === 'task.failed') {
+    const ok = ev.kind === 'task.finished' && ev.success !== false; s.status = ok ? 'done' : 'failed';
+    for (const t of sessionTabs(s)) settleTab(t, ok, ev.result || ev.error);
+    emit('agent.finished', { session: s.id, tab: tab.id, success: ok, result: ev.result || null, error: ev.error || null, steps: ev.steps });
+  }
+}
+// Run a task on the service. The frame appears through the live feed, not this reply.
+async function runTask(d) {
+  const task = d && (d.task || '').trim(); if (!task) return;
+  if (!live.on) liveConnect(live.base);
+  const headers = { 'Content-Type': 'application/json' }; if (config.apiKey) headers['X-API-Key'] = config.apiKey;
+  emit('run.sent', { task });
+  try {
+    const r = await fetch(live.base + '/v1/tasks', { method: 'POST', headers, body: JSON.stringify({ task, provider: d.provider, model: d.model, max_steps: d.max_steps }) });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) { emit('run.rejected', { status: r.status, error: body.detail || r.statusText }); return; }
+    emit('run.finished', { success: body.success, result: body.result, error: body.error });
+  } catch (e) { emit('run.rejected', { error: String(e) }); }
+}
+// A scripted run for testing the feed without a service: the same events,
+// with frames drawn on a canvas.
+function demoFrame(kind) {
+  const c = document.createElement('canvas'); c.width = 1280; c.height = 800; const g = c.getContext('2d');
+  g.fillStyle = '#fbf8fa'; g.fillRect(0, 0, 1280, 800);
+  g.fillStyle = '#4a2f4f'; g.fillRect(0, 0, 1280, 64);
+  g.fillStyle = '#fff'; g.font = '700 22px Inter, sans-serif'; g.fillText('example.shop', 40, 40);
+  g.font = '15px Inter, sans-serif'; g.fillStyle = 'rgba(255,255,255,.75)'; ['Tea', 'Sets', 'Journal', 'Cart (' + (kind === 'cart' ? 1 : 0) + ')'].forEach((t, i) => g.fillText(t, 900 + i * 90, 40));
+  g.fillStyle = '#fff'; g.strokeStyle = '#cdbfd0'; g.lineWidth = 2; g.beginPath(); g.roundRect(320, 14, 500, 36, 8); g.fill(); g.stroke();
+  g.fillStyle = '#9a8aa2'; g.font = '15px Inter, sans-serif'; g.fillText(kind === 'home' ? 'Search' : 'kyusu', 336, 38);
+  const card = (x, y, w, h, title, price, hot) => { g.fillStyle = hot ? '#f5e4ec' : '#fff'; g.strokeStyle = '#e4d8e6'; g.beginPath(); g.roundRect(x, y, w, h, 14); g.fill(); g.stroke();
+    g.fillStyle = '#e9dfe8'; g.beginPath(); g.roundRect(x + 16, y + 16, w - 32, h * 0.55, 10); g.fill();
+    g.fillStyle = '#3d2f44'; g.font = '600 16px Inter, sans-serif'; g.fillText(title, x + 16, y + h * 0.55 + 44); g.fillStyle = '#7a6a84'; g.font = '15px Inter, sans-serif'; g.fillText(price, x + 16, y + h * 0.55 + 70); };
+  if (kind === 'home') { g.fillStyle = '#f2dfe7'; g.beginPath(); g.roundRect(40, 96, 1200, 200, 18); g.fill(); g.fillStyle = '#5a3a55'; g.font = '600 26px Inter, sans-serif'; g.fillText('Spring collection · free shipping over $40', 70, 260);
+    ['Kyusu, cedar $62', 'Yunomi pair $28', 'Chasen whisk $19', 'Matcha bowl $44'].forEach((t, i) => card(40 + i * 305, 330, 280, 400, t.split(' $')[0], '$' + t.split(' $')[1], false)); }
+  else if (kind === 'results') { g.fillStyle = '#3d2f44'; g.font = '600 22px Inter, sans-serif'; g.fillText('3 results for "kyusu"', 40, 120);
+    ['Kyusu, cedar $62', 'Kyusu, clay $54', 'Kyusu, glass $38'].forEach((t, i) => card(40, 150 + i * 200, 1200, 180, t.split(' $')[0], '$' + t.split(' $')[1], i === 0)); }
+  else { g.fillStyle = '#e9dfe8'; g.beginPath(); g.roundRect(40, 100, 560, 560, 18); g.fill();
+    g.fillStyle = '#3d2f44'; g.font = '700 34px Inter, sans-serif'; g.fillText('Kyusu, cedar', 660, 150); g.font = '600 28px Inter, sans-serif'; g.fillText('$62', 660, 200);
+    g.fillStyle = '#7a6a84'; g.font = '16px Inter, sans-serif'; ['Side-handled teapot turned from Yoshino cedar.', 'Holds 300 ml. Ships in 2 days.'].forEach((t, i) => g.fillText(t, 660, 250 + i * 28));
+    g.fillStyle = kind === 'cart' ? '#7fb08a' : '#c98aa8'; g.beginPath(); g.roundRect(660, 330, 220, 54, 12); g.fill(); g.fillStyle = '#fff'; g.font = '600 18px Inter, sans-serif'; g.fillText(kind === 'cart' ? 'Added ✓' : 'Add to cart', 690, 364); }
+  return c.toDataURL('image/jpeg', 0.8);
+}
+function liveDemo() {
+  const id = 'demo_' + Math.random().toString(36).slice(2, 7), t0 = 0;
+  const at = (x, y, w, h) => ({ x: x / 1280, y: y / 800, w: w / 1280, h: h / 800 });
+  const script = [
+    [0, { kind: 'task.started', task: 'Find the price of the cedar kyusu and add it to the cart' }],
+    [700, { kind: 'tab.opened', target: 'T1', url: 'about:blank' }],
+    [1600, { kind: 'navigate', url: 'https://example.shop/', title: 'example.shop · tea and sets' }],
+    [1650, { kind: 'screenshot', src: demoFrame('home') }],
+    [3400, { kind: 'step', n: 1, goal: 'Search for kyusu', actions: [{ kind: 'click', at: at(320, 14, 500, 36) }, { kind: 'type', chars: 5, at: at(320, 14, 500, 36) }] }],
+    [5400, { kind: 'navigate', url: 'https://example.shop/search?q=kyusu', title: 'Search · kyusu' }],
+    [5450, { kind: 'screenshot', src: demoFrame('results') }],
+    [7200, { kind: 'step', n: 2, goal: 'Open the cedar kyusu', actions: [{ kind: 'click', at: at(40, 150, 1200, 180) }] }],
+    [8800, { kind: 'navigate', url: 'https://example.shop/products/kyusu-cedar', title: 'Kyusu, cedar' }],
+    [8850, { kind: 'screenshot', src: demoFrame('product') }],
+    [10400, { kind: 'step', n: 3, goal: 'Add it to the cart', actions: [{ kind: 'scroll' }, { kind: 'click', at: at(660, 330, 220, 54) }] }],
+    [12200, { kind: 'screenshot', src: demoFrame('cart') }],
+    [13400, { kind: 'step', n: 4, goal: 'Report the price', actions: [{ kind: 'done', success: true }] }],
+    [14200, { kind: 'task.finished', success: true, result: 'The cedar kyusu is $62 and is in the cart.', steps: 4 }],
+  ];
+  for (const [at_, ev] of script) setTimeout(() => liveEvent({ session: id, ...ev }), t0 + at_);
+  emit('live.demo', { session: id, events: script.length });
+}
+const config = { throwSpeed: 900, flickSpeed: 900, scrubCardsPerSecond: 2500, apiKey: new URLSearchParams(location.search).get('key') || '' };   // px/s; tune from the gesture side
+
+// ── The event surface ──────────────────────────────────────────────────────
+const listeners = new Map();
+function emit(name, data) {
+  log(`<b>${name}</b> ${data ? JSON.stringify(data) : ''}`);
+  for (const fn of listeners.get(name) || []) { try { fn(data); } catch (e) { console.error(e); } }
+}
+function deckInfo() { return { count: tabs.length, active: active() ? active().id : null, order: tabs.map(t => t.id) }; }
+const commands = {
+  'summon': d => summon(d && d.site),
+  'next': () => rotateDeck(1),
+  'prev': () => rotateDeck(-1),
+  'back': () => sendBack(),
+  'close': () => closeActive(),
+  'click': d => d && clickTell(d.x, d.y),
+  'think': d => setThinking(d ? !!d.on : !thinking),
+  'scale': d => d && (form.kind ? formZoom(d.factor) : scaleTo(view.scale * d.factor)),
+  'scale.to': d => d && (form.kind ? (cam.zoomT = clamp(d.scale, 0.35, 4)) : scaleTo(d.scale)),
+  'duplicate': () => duplicate(),
+  'form': d => d && showForm(d.kind, d),
+  'locate': d => locate(d),
+  'cards.shuffle': () => showForm('cards', { shuffle: true }),
+  'cards.fan': d => { if (form.cards && d) { form.spread = clamp(d.spread, 0.15, 2.2); layoutCards(); form.spreadDirty = true; } },
+  'form.dismiss': () => dismissForm(),
+  'form.faces': d => setFaces(d && d.mode),
+  'form.rotate': d => d && formRotate(d.dx || 0, d.dy || 0),
+  'pick': d => d && pick(d.x, d.y),
+  'unpick': () => unpick(),
+  'move': d => d && moveBy(d.dx || 0, d.dy || 0),
+  'hand': d => handSeen(d.id || 'hand', d.x, d.y, d.pinch),
+  'hand.lost': d => handLost(d ? d.id || 'hand' : 'hand'),
+  'grab': d => grabStart(d.id || 'hand', d.x, d.y),
+  'grab.move': d => grabMove(d.id || 'hand', d.x, d.y),
+  'grab.end': d => grabEnd(d.id || 'hand', d.x, d.y, d.vx || 0, d.vy || 0),
+  'scrub': d => scrubStart(d.id || 'hand', d.x),
+  'scrub.move': d => scrubMove(d.id || 'hand', d.x),
+  'scrub.end': d => scrubEnd(d.id || 'hand', d.vx || 0),
+  'stretch': d => stretchStart(d.id || 'hands', d.distance),
+  'stretch.move': d => stretchMove(d.id || 'hands', d.distance),
+  'stretch.end': d => stretchEnd(d ? d.id || 'hands' : 'hands'),
+  'live.connect': d => liveConnect(d && d.url !== undefined ? d.url : live.base),
+  'live.disconnect': () => liveDisconnect(),
+  'live.event': d => d && d.kind && liveEvent({ session: d.session || 'external', ...d }),
+  'live.demo': () => liveDemo(),
+  'run': d => runTask(d),
+};
+window.MahoragaTabs = {
+  send(name, data) { const c = commands[name]; if (!c) { console.warn('MahoragaTabs: unknown intent', name); return false; } c(data); return true; },
+  on(name, fn) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn); return () => listeners.get(name).delete(fn); },
+  intents: Object.keys(commands),
+  forms: Object.keys(FORMS),
+  config,
+  get state() {
+    const planets = form.kind === 'solar' ? form.planets.map(pl => { const c = planetCenter(pl), q = project(c[0], c[1], c[2]); return { name: pl.name, x: q.x, y: q.y }; }) : [];
+    const sessions = [...live.sessions.values()].map(s => ({ session: s.id, task: s.task, status: s.status, tabs: sessionTabs(s).map(t => t.id) }));
+    return { ...deckInfo(), view: { ...view }, scrub: scrub.s, thinking, petals: sprites === realSprites ? 'real' : 'drawn', live: { status: live.status, base: live.base, sessions },
+      form: form.kind ? { kind: form.kind, faces: form.faces, picked: form.picked ? form.picked.name : null, zoom: cam.zoom, settled: form.settled, total: form.total, planets, place: form.map ? form.map.place : undefined,
+        hand: form.cards ? form.cards.filter(c => c.fan).map(c => { const q = project(c.x, c.y, c.z); return { name: c.name, x: q.x, y: q.y, lift: c.lift }; }) : undefined } : null };
+  },
+};
+
+// ── Update ─────────────────────────────────────────────────────────────────
+function update(dt) {
+  gust.x *= Math.pow(0.1, dt); gust.y *= Math.pow(0.1, dt);
+  let border = 0;
+  for (let i = petals.length - 1; i >= 0; i--) {
+    const p = petals[i];
+    p.px = p.x; p.py = p.y;
+    if (p.fadeIn) { p.alpha = Math.min(1, p.alpha + dt * 3); if (p.alpha >= 1) p.fadeIn = false; }
+    if (p.baseRot === undefined) p.baseRot = p.rot;
+
+    if (p.mode === 'ambient') {
+      flutterStep(p, dt, 1);
+      if (p.y > waterline() + 20 || p.x < -60 || p.x > W + 60) { petals.splice(i, 1); spawnAmbient(false); }
+    }
+    else if (p.mode === 'gather') {
+      const t = clamp((now - p.born - p.delay) / p.dur, 0, 1);
+      if (t <= 0) continue;
+      if (p.follow) { const a = p.follow(p); p.tx = a.x; p.ty = a.y; }   // the target may have moved
+      const e = flightEase(t), u = 1 - e, w = wind(p.x, p.y, now);
+      p.ox += w.x * dt; p.oy += w.y * dt;
+      const fl = Math.sin(p.phase + t * p.wobF * Math.PI) * p.wobA * Math.sin(Math.PI * t);
+      p.x = u * u * p.sx + 2 * u * e * p.cx + e * e * p.tx + p.nx * fl + p.ox * u;
+      p.y = u * u * p.sy + 2 * u * e * p.cy + e * e * p.ty + p.ny * fl + p.oy * u;
+      const vx = (p.x - p.px) / dt, vy = (p.y - p.py) / dt, speed = Math.hypot(vx, vy);
+      if (speed > 8) p.rot = lerpAngle(p.rot, Math.atan2(vy, vx) + Math.PI / 2 + p.spin * 0.4, 1 - Math.pow(0.02, dt));
+      p.flip += (1.2 + speed * 0.012) * dt;
+      if (t >= 1) { p.mode = 'settle'; p.settleAt = now; p.baseRot = p.rot; const sp = speed || 1; p.svx = vx / sp; p.svy = vy / sp; }
+    }
+    else if (p.mode === 'settle') {
+      const s = clamp((now - p.settleAt) / 0.42, 0, 1), k = Math.sin(s * Math.PI * 1.5) * (1 - s) * 7;
+      if (p.follow) { const a = p.follow(p); p.tx = a.x; p.ty = a.y; }
+      p.x = p.tx + p.svx * k; p.y = p.ty + p.svy * k;
+      if (s >= 1) {
+        if (p.form) { p.mode = 'form'; if (p.form.onSettle) p.form.onSettle(); }
+        else if (p.isClick) { ripples.push({ x: p.tx, y: p.ty, born: now }); ripples.push({ x: p.tx, y: p.ty, born: now + 0.18 }); p.mode = 'fade'; }
+        else if (p.fadeOnSettle) { if (p.smallRipple) ripples.push({ x: p.tx, y: p.ty, born: now, small: true }); p.mode = 'fade'; }
+        else if (p.edge && p.keep) { p.mode = 'border'; p.hoverPhase = rand(0, Math.PI * 2); }
+        else { p.mode = 'fade'; if (!p.edge && p.tab) p.tab.settled++; }
+      }
+    }
+    else if (p.mode === 'border') {
+      border++;
+      const a = p.follow(p), w = wind(a.x, a.y, now), k = now * 1.3 + p.hoverPhase;
+      // A finished task calms its border: the hover and the wind coupling ease away.
+      const calm = p.calmAt ? 1 - 0.85 * smoothstep(0, 1.5, now - p.calmAt) : 1;
+      p.x = a.x + (w.x * 0.16 + Math.sin(k) * 1.5) * calm; p.y = a.y + (w.y * 0.16 + Math.cos(k * 0.8) * 1.5) * calm;
+      // A navigation runs a wave around the frame: each petal lifts outward as it passes.
+      if (p.wave) {
+        const tw = now - p.wave - (p.u || 0) * 0.8;
+        if (tw > 0.55) p.wave = 0;
+        else if (tw > 0) { const f = frontRect(), nx = a.x - (f.x + f.w / 2), ny = a.y - (f.y + f.h / 2), nl = Math.hypot(nx, ny) || 1, b = Math.sin(tw / 0.55 * Math.PI) * 16; p.x += nx / nl * b; p.y += ny / nl * b; p.flip += 7 * dt; }
+      }
+      p.rot = lerpAngle(p.rot, p.baseRot + w.x * 0.012, 1 - Math.pow(0.05, dt)); p.flip += 0.8 * dt * calm;
+      if (!settings.calm && !p.calmAt && Math.random() < dt * 0.02) { startFall(p, 0); p.rippled = true; }
+    }
+    else if (p.mode === 'fall') {
+      if (now < p.fallAt) continue;
+      flutterStep(p, dt, smoothstep(0, 0.6, now - p.fallAt));
+      if (p.die && now > p.die) { p.alpha -= dt * 2; if (p.alpha <= 0) { petals.splice(i, 1); continue; } }
+      if (p.y > waterline() - rand(0, 30)) {
+        if (!p.rippled) { if (Math.random() < 0.18) ripples.push({ x: p.x, y: p.y, born: now, small: true }); p.rippled = true; }
+        p.alpha -= dt * 2.5; if (p.alpha <= 0) petals.splice(i, 1);
+      }
+    }
+    else if (p.mode === 'orbit') {
+      const f = frontRect();
+      p.ang += p.angV * (1 + 0.3 * Math.sin(now * 0.7 + p.phase)) * dt;
+      const w = wind(p.x, p.y, now);
+      p.x = f.x + f.w / 2 + Math.cos(p.ang) * (f.w / 2 + p.rx) + w.x * 0.3; p.y = f.y + f.h / 2 + Math.sin(p.ang) * (f.h / 2 + p.ry) + w.y * 0.3;
+      p.rot = lerpAngle(p.rot, p.ang + (p.angV > 0 ? Math.PI : 0), 1 - Math.pow(0.05, dt)); p.flip += 1.4 * dt;
+    }
+    else if (p.mode === 'cursor') {
+      // Orbit the hand; the orbit tightens as the pinch closes.
+      const h = p.hand, r = 10 + (1 - h.pinch) * 16;
+      p.ang += p.angV * dt;
+      p.x += ((h.x + Math.cos(p.ang) * r) - p.x) * (1 - Math.pow(0.001, dt));
+      p.y += ((h.y + Math.sin(p.ang * 1.3) * r * 0.7) - p.y) * (1 - Math.pow(0.001, dt));
+      p.rot += p.angV * 0.5 * dt; p.flip += 2 * dt;
+    }
+    else if (p.mode === 'form') {
+      // Settled on a 3D surface: sit where the projection says, breathe with the wind.
+      const a = p.follow(p), w = wind(a.x, a.y, now);
+      p.x = a.x + w.x * 0.05; p.y = a.y + w.y * 0.05;
+      p.rot += p.spin * 0.15 * dt; p.flip += 0.6 * dt;
+      const target = p.alphaT === undefined ? 1 : p.alphaT;
+      p.alpha += (target - p.alpha) * (1 - Math.pow(0.05, dt));
+    }
+    else if (p.mode === 'fade') { p.alpha -= dt * 2.2; if (p.alpha <= 0) petals.splice(i, 1); }
+  }
+  for (let i = ripples.length - 1; i >= 0; i--) if (now - ripples[i].born > 1.1) ripples.splice(i, 1);
+  formStep(dt);
+
+  for (const t of tabs) if (t.state === 'summoning') {
+    const frac = t.settledTotal ? t.settled / t.settledTotal : 1;
+    t.el.style.opacity = easeOutQuart(clamp((frac - 0.15) / 0.7, 0, 1)).toFixed(3);
+    if (frac >= 0.98) { t.state = 'held'; layoutDeck(); }
+  }
+  const a = active();
+  statEl.textContent = form.kind
+    ? `${petals.length} petals · ${form.kind}${form.kind === 'cube' ? ' · faces ' + form.faces : ''}${form.picked ? ' · ' + form.picked.name : ''} · zoom ×${cam.zoom.toFixed(2)}`
+    : `${petals.length} petals · ${border} on frame · ${tabs.length} tab${tabs.length === 1 ? '' : 's'}${a ? ' · ' + a.site.name : ''} · ×${view.scale.toFixed(2)}${live.status !== 'off' ? ' · live ' + live.status : ''}`;
+}
+
+// ── Draw
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  for (const r of ripples) {
+    const t = (now - r.born) / 1.1; if (t < 0) continue;
+    const rad = (r.small ? 6 : 10) + t * (r.small ? 26 : 60);
+    ctx.beginPath(); ctx.ellipse(r.x, r.y, rad, rad * (r.small ? 0.35 : 0.7), 0, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255,255,255,${(1 - t) * (r.small ? 0.5 : 0.85)})`; ctx.lineWidth = 1.2; ctx.stroke();
+  }
+  for (const p of petals) {
+    if (p.mode === 'form') continue;
+    drawPetal(p);
+  }
+  drawForm();
+}
+function drawPetal(p) {
+  if (p.alpha <= 0.01) return;
+  if (p.mode === 'gather' && now - p.born < p.delay) return;
+  if (p.mode === 'fall' && now < p.fallAt) return;
+  const s = sprites[p.sprite] || sprites[p.sprite % 4] || sprites[0], sc = p.size * SPRITE * spriteScale * (p.ds || 1);
+  const fx = (sprites === realSprites ? 0.45 : 0.3) + (sprites === realSprites ? 0.55 : 0.7) * Math.abs(Math.cos(p.flip));
+  ctx.save(); ctx.globalAlpha = p.alpha * (p.da === undefined ? 1 : p.da); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.scale(fx, 1);
+  ctx.drawImage(s, -sc / 2, -sc / 2, sc, sc); ctx.restore();
+}
+let last = performance.now();
+function frame(ts) {
+  const dt = Math.min((ts - last) / 1000, 0.05); last = ts; now = ts / 1000;
+  update(dt); draw(); requestAnimationFrame(frame);
+}
+resize();
+for (let i = 0; i < settings.ambient; i++) spawnAmbient(true);
+requestAnimationFrame(frame);
+// Follow the service this page came from, unless told not to (`?live=off`) or
+// pointed elsewhere (`?live=https://host:8080`).
+{ const q = new URLSearchParams(location.search).get('live'); if (q !== 'off') setTimeout(() => liveConnect(q && q !== 'on' ? q : ''), 300); }
+
+// ── Event log (last few outcomes, so you can see what to attach to) ────────
+const logLines = [];
+function log(html) {
+  logLines.push(`<span class="t">${now.toFixed(1)}</span> ${html}`); if (logLines.length > 7) logLines.shift();
+  logEl.innerHTML = logLines.join('<br>') + `<div class="hint">MahoragaTabs.send(intent, data) · .on(outcome, fn)<br>mouse: move=hand · drag=grab · shift+drag=scrub · wheel=scale</div>`;
+}
+log('ready');
+
+// ── Controls: buttons, keys, and a virtual hand on the mouse ───────────────
+function setPressed(id, on) { document.getElementById(id).setAttribute('aria-pressed', String(on)); }
+function doClick() {
+  const tab = active(); if (!tab || tab.state !== 'held') return;
+  const target = tab.el.querySelector('.target'), f = frontRect();
+  const b = target ? target.getBoundingClientRect() : { left: f.x + f.w * 0.5, top: f.y + f.h * 0.55, width: 0, height: 0 };
+  MahoragaTabs.send('click', { x: b.left + b.width / 2, y: b.top + b.height / 2 });
+  const step = tab.el.querySelector('.step'), was = step.textContent; step.textContent = was + ' ✓'; setTimeout(() => step.textContent = was, 900);
+}
+for (const [kind, def] of Object.entries(FORMS)) {
+  if (kind === 'text') continue;
+  const b = document.createElement('button'); b.dataset.cmd = def.locate ? 'locate' : 'form.' + kind; b.textContent = def.label || kind[0].toUpperCase() + kind.slice(1);
+  document.getElementById('grp-' + def.group).appendChild(b);
+}
+document.querySelectorAll('.hud button').forEach(b => b.onclick = () => {
+  const c = b.dataset.cmd;
+  if (c === 'click') doClick();
+  else if (c === 'live') { if (live.on) MahoragaTabs.send('live.disconnect'); else MahoragaTabs.send('live.connect'); }
+  else if (c === 'run') { const i = document.getElementById('task-in'); MahoragaTabs.send('run', { task: i.value }); i.value = ''; }
+  else if (c === 'calm') { settings.calm = !settings.calm; setPressed('b-calm', settings.calm); }
+  else if (c === 'petals') usePetals(!settings.realPetals);
+  else if (c === 'form.text') MahoragaTabs.send('form', { kind: 'text', text: document.getElementById('text-in').value });
+  else if (c.startsWith('form.') && FORMS[c.slice(5)]) MahoragaTabs.send('form', { kind: c.slice(5) });
+  else MahoragaTabs.send(c);
+});
+const devEl = document.getElementById('dev');
+document.getElementById('devtoggle').onclick = () => { devEl.hidden = !devEl.hidden; };
+setPressed('b-calm', settings.calm);
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') { if (e.key === 'Enter') document.querySelector(e.target.id === 'task-in' ? '[data-cmd="run"]' : '[data-cmd="form.text"]').click(); return; }
+  if (e.key === '`') { devEl.hidden = !devEl.hidden; return; }
+  if (e.key === ' ') { e.preventDefault(); MahoragaTabs.send('summon'); }
+  else if (e.key === 'ArrowRight') MahoragaTabs.send('next');
+  else if (e.key === 'ArrowLeft') MahoragaTabs.send('prev');
+  else if (e.key === 'Escape') MahoragaTabs.send('close');
+  else if (e.key === 'b' || e.key === 'B') MahoragaTabs.send('back');
+  else if (e.key === 'c' || e.key === 'C') doClick();
+  else if (e.key === 't' || e.key === 'T') MahoragaTabs.send('think');
+  else if (e.key === 'm' || e.key === 'M') document.getElementById('b-calm').click();
+  else if (e.key === 'p' || e.key === 'P') usePetals(!settings.realPetals);
+  else if (e.key === 'd' || e.key === 'D') MahoragaTabs.send('duplicate');
+  else if (e.key === '1') MahoragaTabs.send('form', { kind: 'cube' });
+  else if (e.key === '2') MahoragaTabs.send('form', { kind: 'brain' });
+  else if (e.key === '3') MahoragaTabs.send('form', { kind: 'solar' });
+  else if (e.key === '0') MahoragaTabs.send('form.dismiss');
+  else if (e.key === '4') MahoragaTabs.send('locate');
+  else if (e.key === '5') MahoragaTabs.send('form', { kind: 'cards' });
+  else if (e.key === 's' || e.key === 'S') { if (form.cards) MahoragaTabs.send('cards.shuffle'); }
+  else if (e.key === 'f' || e.key === 'F') MahoragaTabs.send('form.faces');
+  else if (e.key === 'l' || e.key === 'L') document.getElementById('b-live').click();
+  else if (e.key === 'g' || e.key === 'G') MahoragaTabs.send('live.demo');
+  else if (e.key === 'u' || e.key === 'U') MahoragaTabs.send('unpick');
+  else if (e.key === '+' || e.key === '=') MahoragaTabs.send('scale', { factor: 1.1 });
+  else if (e.key === '-' || e.key === '_') MahoragaTabs.send('scale', { factor: 1 / 1.1 });
+});
+// Virtual hand. The real gesture layer replaces this with camera landmarks
+// and sends the same intents.
+(() => {
+  const ID = 'mouse'; let down = null; const trail = [];
+  // Wall-clock timestamps: the animation clock only advances per frame, and a
+  // slow frame would make a fresh flick look stale.
+  const clock = () => performance.now() / 1000;
+  const velocity = () => {
+    // Speed over the last few samples; a hand that paused before letting go is a drop.
+    const pts = trail.slice(-6);
+    if (pts.length < 2 || clock() - pts[pts.length - 1].t > 0.3) return { vx: 0, vy: 0 };
+    const a = pts[0], b = pts[pts.length - 1], dt = Math.max(b.t - a.t, 0.016);
+    return { vx: (b.x - a.x) / dt, vy: (b.y - a.y) / dt };
+  };
+  window.addEventListener('pointermove', e => {
+    trail.push({ x: e.clientX, y: e.clientY, t: clock() }); if (trail.length > 12) trail.shift();
+    if (down === 'scrub') MahoragaTabs.send('scrub.move', { id: ID, x: e.clientX });
+    else if (down === 'grab') MahoragaTabs.send('grab.move', { id: ID, x: e.clientX, y: e.clientY });
+    else MahoragaTabs.send('hand', { id: ID, x: e.clientX, y: e.clientY, pinch: 0 });
+  });
+  window.addEventListener('pointerdown', e => {
+    if (e.target.closest('.hud')) return;
+    MahoragaTabs.send('hand', { id: ID, x: e.clientX, y: e.clientY, pinch: 1 });
+    if (e.shiftKey) { down = 'scrub'; MahoragaTabs.send('scrub', { id: ID, x: e.clientX }); }
+    else { down = 'grab'; MahoragaTabs.send('grab', { id: ID, x: e.clientX, y: e.clientY }); }
+  });
+  window.addEventListener('pointerup', e => {
+    const v = velocity();
+    if (down === 'scrub') MahoragaTabs.send('scrub.end', { id: ID, vx: v.vx });
+    else if (down === 'grab') MahoragaTabs.send('grab.end', { id: ID, x: e.clientX, y: e.clientY, vx: v.vx, vy: v.vy });
+    down = null; MahoragaTabs.send('hand', { id: ID, x: e.clientX, y: e.clientY, pinch: 0 });
+  });
+  window.addEventListener('wheel', e => { e.preventDefault(); MahoragaTabs.send('scale', { factor: Math.exp(-e.deltaY * 0.0012) }); }, { passive: false });
+  document.addEventListener('mouseleave', () => MahoragaTabs.send('hand.lost', { id: ID }));
+  updateFacesButton();
+})();
+</script>
+</body>
+</html>
