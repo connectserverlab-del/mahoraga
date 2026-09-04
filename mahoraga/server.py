@@ -268,6 +268,11 @@ def create_app() -> FastAPI:
     async def console() -> FileResponse:
         return FileResponse(CONSOLE_DIR / "index.html")
 
+    @app.get("/petals")
+    async def petals_prototype() -> FileResponse:
+        """Standalone prototype of the petal-summon viewer; not part of the console yet."""
+        return FileResponse(CONSOLE_DIR / "petals.html")
+
     return app
 
 

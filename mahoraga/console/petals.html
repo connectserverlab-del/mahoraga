@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mahoraga · petal summon prototype</title>
+<link rel="icon" href="/assets/logo.png" />
+<style>
+  @font-face {
+    font-family: 'Inter'; font-style: normal; font-weight: 100 900; font-display: swap;
+    src: url('/assets/inter.woff2') format('woff2');
+  }
+  :root {
+    --font: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --glass: rgba(255,255,255,.62); --glass-line: rgba(255,255,255,.75); --glass-ink: #4a4058;
+    --rose: #e8a3bb; --gold: #e6c98a;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; background: #e9e0f2; }
+  body { font: 14px/1.5 var(--font); color: var(--glass-ink); -webkit-font-smoothing: antialiased; }
+
+  /* ── The domain: the same idle sakura clip the console uses ─────────────── */
+  .domain { position: fixed; inset: 0; z-index: 0; overflow: hidden; }
+  .domain video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+
+  /* ── Petal layer: a single 2D canvas above the scene, below nothing ──────── */
+  #petals { position: fixed; inset: 0; z-index: 3; pointer-events: none; }
+
+  /* ── The summoned viewer. Sized here, but it only becomes visible as the
+        petals settle: its opacity is driven from JS by the settle fraction. ── */
+  .viewer { position: fixed; z-index: 2; left: 50%; top: 47%; transform: translate(-50%, -50%);
+    width: min(72vw, 1120px); aspect-ratio: 16 / 10; opacity: 0; pointer-events: none;
+    border-radius: 18px; overflow: hidden;
+    background: rgba(24, 18, 30, .58);
+    box-shadow: 0 30px 80px rgba(60, 30, 70, .35), inset 0 0 0 1px rgba(255,255,255,.18);
+    backdrop-filter: blur(6px) saturate(120%); -webkit-backdrop-filter: blur(6px) saturate(120%); }
+  .viewer.live { pointer-events: auto; }
+  .viewer .chrome { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px;
+    background: rgba(255,255,255,.08); border-bottom: 1px solid rgba(255,255,255,.12); color: #f3e9f2; }
+  .viewer .tab { display: flex; align-items: center; gap: 8px; font-size: 12.5px; font-weight: 550;
+    padding: 6px 12px; border-radius: 9px; background: rgba(255,255,255,.12); }
+  .viewer .tab .fav { width: 10px; height: 10px; border-radius: 50% 0 50% 50%; background: var(--rose); transform: rotate(45deg); }
+  .viewer .url { flex: 1; font-family: var(--mono); font-size: 12px; color: rgba(243,233,242,.75);
+    background: rgba(0,0,0,.22); border-radius: 9px; padding: 6px 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .viewer .step { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--gold); white-space: nowrap; }
+  /* A fake page so the summon has something to reveal. Replace with the real feed. */
+  .page { position: absolute; inset: 44px 0 0 0; padding: 22px 26px; color: #efe6ee; overflow: hidden; }
+  .page .hdr { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+  .page .brand { font-weight: 700; letter-spacing: -.01em; font-size: 15px; }
+  .page .nav { display: flex; gap: 16px; font-size: 12px; opacity: .7; }
+  .page .hero { height: 26%; border-radius: 12px; margin-bottom: 18px;
+    background: linear-gradient(120deg, rgba(232,163,187,.35), rgba(230,201,138,.25)); display: flex; align-items: flex-end; padding: 16px; font-size: 13px; opacity: .9; }
+  .page .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
+  .page .card { border-radius: 12px; background: rgba(255,255,255,.08); padding: 12px; font-size: 12px; min-height: 120px;
+    display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; border: 1px solid rgba(255,255,255,.08); }
+  .page .card .sw { height: 48px; border-radius: 8px; background: rgba(255,255,255,.12); margin-bottom: auto; }
+  .page .card .btn { align-self: flex-start; padding: 5px 9px; border-radius: 7px; background: rgba(232,163,187,.28); border: 1px solid rgba(232,163,187,.5); font-size: 11px; }
+  .page .card .btn.target { background: rgba(230,201,138,.32); border-color: rgba(230,201,138,.7); }
+
+  /* ── HUD: the same glass pills the console already uses ─────────────────── */
+  .hud { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 5;
+    display: flex; gap: 8px; align-items: center; }
+  .hud button, .hud .hint { font: inherit; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6b5f7a;
+    background: var(--glass); border: 1px solid var(--glass-line); border-radius: 20px; padding: 8px 14px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); cursor: pointer; transition: .15s; }
+  .hud button:hover { background: rgba(255,255,255,.8); color: #3f3550; }
+  .hud button[aria-pressed="true"] { background: rgba(232,163,187,.55); border-color: rgba(232,163,187,.8); color: #4a2035; }
+  .hud .hint { cursor: default; opacity: .85; }
+  .hud kbd { font: inherit; opacity: .6; margin-right: 4px; }
+  .stat { position: fixed; right: 16px; bottom: 26px; z-index: 5; font-family: var(--mono); font-size: 11px; color: #6b5f7a;
+    background: var(--glass); border: 1px solid var(--glass-line); border-radius: 12px; padding: 6px 10px;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); opacity: .8; }
+  @media (max-width: 900px) { .hud .hint { display: none; } .viewer { width: 92vw; } }
+</style>
+</head>
+<body>
+
+<div class="domain">
+  <video muted autoplay loop playsinline preload="auto">
+    <source src="/assets/voice/idle.webm" type="video/webm">
+    <source src="/assets/voice/idle.mp4" type="video/mp4">
+  </video>
+</div>
+
+<div class="viewer" id="viewer" aria-hidden="true">
+  <div class="chrome">
+    <div class="tab"><span class="fav"></span> example.shop</div>
+    <div class="url">https://example.shop/collections/tea-sets?sort=price</div>
+    <div class="step" id="step">Step 3 · add to cart</div>
+  </div>
+  <div class="page">
+    <div class="hdr"><div class="brand">example.shop</div><div class="nav"><span>Tea</span><span>Sets</span><span>Journal</span><span>Cart (0)</span></div></div>
+    <div class="hero">Spring collection · free shipping over $40</div>
+    <div class="grid">
+      <div class="card"><div class="sw"></div>Kyusu, cedar<span>$62</span><span class="btn">Add to cart</span></div>
+      <div class="card"><div class="sw"></div>Yunomi pair<span>$28</span><span class="btn target" id="target-btn">Add to cart</span></div>
+      <div class="card"><div class="sw"></div>Chasen whisk<span>$19</span><span class="btn">Add to cart</span></div>
+      <div class="card"><div class="sw"></div>Matcha bowl<span>$44</span><span class="btn">Add to cart</span></div>
+    </div>
+  </div>
+</div>
+
+<canvas id="petals"></canvas>
+
+<div class="hud">
+  <button id="b-summon"><kbd>Space</kbd>Summon</button>
+  <button id="b-dismiss"><kbd>Esc</kbd>Dismiss</button>
+  <button id="b-click"><kbd>C</kbd>Click</button>
+  <button id="b-think" aria-pressed="false"><kbd>T</kbd>Thinking</button>
+  <button id="b-calm" aria-pressed="false"><kbd>M</kbd>Calm</button>
+</div>
+<div class="stat" id="stat"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// Petal summon prototype.
+//
+// One rule: the tree is the source of everything. A summon sheds petals from
+// the canopy, they trace the viewer's outline first and then fill it in, and
+// the live view fades up underneath as they settle. Dismiss loosens the frame
+// back into petals that fall to the pool. Nothing here touches the console;
+// it is a standalone page for tuning the motion before wiring it to real tabs.
+// ─────────────────────────────────────────────────────────────────────────────
+const canvas = document.getElementById('petals');
+const ctx = canvas.getContext('2d', { alpha: true });
+const viewerEl = document.getElementById('viewer');
+const statEl = document.getElementById('stat');
+const DPR = Math.min(window.devicePixelRatio || 1, 2);
+let W = 0, H = 0;
+
+function resize() {
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+window.addEventListener('resize', resize); resize();
+
+// ── Petal sprites: a few pre-rendered tints so drawing is a single drawImage.
+const TINTS = [
+  ['#fbe4ec', '#f2b7cb'], ['#f9d5e0', '#eea6bf'], ['#fdeff4', '#f4c3d3'], ['#f6c6d6', '#e79ab6'],
+];
+const SPRITE = 28; // px, drawn at 2x for crispness
+const sprites = TINTS.map(([light, deep]) => {
+  const c = document.createElement('canvas'); c.width = c.height = SPRITE * 2;
+  const g = c.getContext('2d'); g.scale(2, 2); g.translate(SPRITE / 2, SPRITE / 2);
+  const grad = g.createRadialGradient(0, 2, 1, 0, 0, SPRITE / 2);
+  grad.addColorStop(0, deep); grad.addColorStop(0.55, light); grad.addColorStop(1, light);
+  g.fillStyle = grad;
+  // Cherry petal: a rounded teardrop with a notch at the top.
+  g.beginPath();
+  g.moveTo(0, 11);                                  // stem point
+  g.bezierCurveTo(-11, 6, -12, -6, -5, -10);        // left lobe
+  g.quadraticCurveTo(-1, -8, 0, -5);                // notch
+  g.quadraticCurveTo(1, -8, 5, -10);
+  g.bezierCurveTo(12, -6, 11, 6, 0, 11);            // right lobe
+  g.closePath(); g.fill();
+  g.strokeStyle = 'rgba(190,110,140,.18)'; g.lineWidth = .6; g.stroke();
+  return c;
+});
+
+// ── Settings. Calm mode is the reduced-motion profile.
+const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const settings = {
+  calm: prefersReduced,
+  get count()    { return this.calm ? 180 : 520; },   // petals per summon
+  get duration() { return this.calm ? 0.75 : 1.15; }, // seconds, per petal flight
+  get swirl()    { return this.calm ? 0.25 : 1.0; },  // spiral amplitude multiplier
+  get ambient()  { return this.calm ? 8 : 22; },      // petals always drifting
+};
+
+// ── Helpers
+const rand = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const easeOutQuart = t => 1 - Math.pow(1 - t, 4);
+const easeInOutCubic = t => t < .5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+
+// The canopy: where petals come from. Roughly the tree's crown in the clip.
+function canopyPoint() {
+  const a = rand(0, Math.PI * 2), r = Math.sqrt(Math.random());
+  return { x: W * 0.5 + Math.cos(a) * r * W * 0.42, y: H * 0.24 + Math.sin(a) * r * H * 0.2 };
+}
+const waterline = () => H * 0.8;
+
+// Viewer rectangle from the DOM, so layout stays in CSS.
+function frameRect() {
+  const r = viewerEl.getBoundingClientRect();
+  return { x: r.left, y: r.top, w: r.width, h: r.height, r: 18 };
+}
+// A point on the frame's outline, evenly distributed by perimeter.
+function perimeterPoint(f, u) {
+  const per = 2 * (f.w + f.h); let d = u * per;
+  if (d < f.w) return { x: f.x + d, y: f.y };
+  d -= f.w; if (d < f.h) return { x: f.x + f.w, y: f.y + d };
+  d -= f.h; if (d < f.w) return { x: f.x + f.w - d, y: f.y + f.h };
+  d -= f.w; return { x: f.x, y: f.y + f.h - d };
+}
+
+// ── Petals
+// mode: 'ambient' | 'gather' | 'border' | 'fall' | 'orbit' | 'fade'
+const petals = [];
+let now = 0;
+
+function makePetal(x, y) {
+  return {
+    x, y, mode: 'ambient', sprite: (Math.random() * sprites.length) | 0,
+    size: rand(0.55, 1.05), rot: rand(0, Math.PI * 2), rotV: rand(-1.2, 1.2),
+    flip: rand(0, Math.PI * 2), flipV: rand(1.5, 3.5), alpha: 1, born: now,
+    vx: rand(-8, 8), vy: rand(6, 18), sway: rand(0, Math.PI * 2),
+  };
+}
+function spawnAmbient() {
+  const p = makePetal(rand(0, W), rand(-40, H * 0.5)); p.alpha = rand(.5, .9); petals.push(p);
+}
+for (let i = 0; i < settings.ambient; i++) spawnAmbient();
+
+// ── Summon state
+let phase = 'idle';           // idle | summoning | held | dismissing
+let summonStart = 0, interiorTotal = 0, interiorSettled = 0;
+let thinking = false;
+
+function summon() {
+  if (phase === 'summoning' || phase === 'held') return;
+  phase = 'summoning'; summonStart = now; interiorSettled = 0;
+  viewerEl.classList.remove('live'); viewerEl.setAttribute('aria-hidden', 'false');
+  const f = frameRect(), n = settings.count, edgeShare = 0.55;
+  interiorTotal = 0;
+  for (let i = 0; i < n; i++) {
+    const s = canopyPoint(), p = makePetal(s.x, s.y);
+    const onEdge = i < n * edgeShare;
+    let t;
+    if (onEdge) {
+      const u = i / (n * edgeShare); t = perimeterPoint(f, (u + 0.13) % 1);
+      // jitter across the edge so the outline reads as a soft band, not a wire
+      t.x += rand(-9, 9); t.y += rand(-9, 9);
+      p.delay = rand(0, 0.28);
+    } else {
+      const inset = 26;
+      t = { x: rand(f.x + inset, f.x + f.w - inset), y: rand(f.y + inset, f.y + f.h - inset) };
+      p.delay = rand(0.22, 0.62); interiorTotal++;
+    }
+    p.mode = 'gather'; p.sx = s.x; p.sy = s.y; p.tx = t.x; p.ty = t.y; p.edge = onEdge;
+    p.dur = settings.duration * rand(0.85, 1.15);
+    // Control point off the straight line: this is what makes the flight arc/spiral.
+    const dx = t.x - s.x, dy = t.y - s.y, len = Math.hypot(dx, dy) || 1;
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const amp = len * rand(0.18, 0.45) * settings.swirl * side;
+    p.cx = (s.x + t.x) / 2 + (-dy / len) * amp; p.cy = (s.y + t.y) / 2 + (dx / len) * amp;
+    p.wob = rand(0, Math.PI * 2); p.wobA = rand(2, 7) * settings.swirl;
+    // Border petals persist. Some of them fade so the outline breathes.
+    p.keep = onEdge && Math.random() < 0.72;
+    p.hoverPhase = rand(0, Math.PI * 2);
+    petals.push(p);
+  }
+}
+
+function dismiss() {
+  if (phase !== 'held' && phase !== 'summoning') return;
+  phase = 'dismissing'; summonStart = now; thinking = false; setPressed('b-think', false);
+  viewerEl.classList.remove('live'); viewerEl.setAttribute('aria-hidden', 'true');
+  const f = frameRect();
+  // Everything still attached to the frame lets go...
+  for (const p of petals) if (p.mode === 'border' || p.mode === 'gather' || p.mode === 'orbit') startFall(p, rand(0, 0.35));
+  // ...and the interior re-sheds as petals so the contents visibly come apart.
+  const n = settings.calm ? 90 : 220;
+  for (let i = 0; i < n; i++) {
+    const p = makePetal(rand(f.x, f.x + f.w), rand(f.y, f.y + f.h));
+    p.alpha = 0; p.fadeIn = true; startFall(p, rand(0, 0.5)); petals.push(p);
+  }
+}
+function startFall(p, delay) {
+  p.mode = 'fall'; p.fallAt = now + delay; p.vx = rand(-14, 14); p.vy = rand(-10, 10);
+  p.sway = rand(0, Math.PI * 2); p.rippled = false;
+}
+
+// A click tell: one petal drops from the top edge to the point and lands with a ripple.
+const ripples = [];
+function clickTell(x, y) {
+  const f = frameRect();
+  const p = makePetal(x + rand(-40, 40), f.y - 10);
+  p.mode = 'gather'; p.sx = p.x; p.sy = p.y; p.tx = x; p.ty = y; p.delay = 0; p.dur = 0.55;
+  p.cx = (p.sx + x) / 2 + rand(-30, 30); p.cy = (p.sy + y) / 2; p.wob = 0; p.wobA = 0;
+  p.edge = false; p.keep = false; p.isClick = true; petals.push(p);
+}
+
+// Thinking: a loose orbit around the frame.
+function setThinking(on) {
+  thinking = on; setPressed('b-think', on);
+  if (on) {
+    const f = frameRect(), n = settings.calm ? 14 : 36;
+    for (let i = 0; i < n; i++) {
+      const p = makePetal(f.x + f.w / 2, f.y + f.h / 2);
+      p.mode = 'orbit'; p.ang = (i / n) * Math.PI * 2; p.angV = rand(0.35, 0.7) * (Math.random() < .5 ? -1 : 1);
+      // Well clear of the border band so it reads as an orbit, not a thicker edge.
+      p.rx = f.w / 2 + rand(64, 120); p.ry = f.h / 2 + rand(54, 100); p.alpha = 0; p.fadeIn = true; petals.push(p);
+    }
+  } else {
+    for (const p of petals) if (p.mode === 'orbit') startFall(p, rand(0, 0.3));
+  }
+}
+
+// ── Update
+function update(dt) {
+  const f = frameRect();
+  let border = 0;
+  for (let i = petals.length - 1; i >= 0; i--) {
+    const p = petals[i];
+    p.rot += p.rotV * dt; p.flip += p.flipV * dt;
+    if (p.fadeIn) { p.alpha = Math.min(1, p.alpha + dt * 3); if (p.alpha >= 1) p.fadeIn = false; }
+
+    if (p.mode === 'ambient') {
+      p.sway += dt * 1.4;
+      p.x += (p.vx + Math.sin(p.sway) * 18) * dt; p.y += p.vy * dt;
+      if (p.y > waterline() + 20 || p.x < -40 || p.x > W + 40) { petals.splice(i, 1); spawnAmbient(); }
+    }
+    else if (p.mode === 'gather') {
+      const t = clamp((now - p.born - p.delay) / p.dur, 0, 1);
+      if (t <= 0) continue;
+      const e = easeInOutCubic(t), u = 1 - e;
+      // Quadratic bezier from canopy to target, plus a wobble that dies on arrival.
+      p.x = u * u * p.sx + 2 * u * e * p.cx + e * e * p.tx + Math.sin(p.wob + t * 9) * p.wobA * u;
+      p.y = u * u * p.sy + 2 * u * e * p.cy + e * e * p.ty + Math.cos(p.wob + t * 7) * p.wobA * u;
+      if (t >= 1) {
+        if (p.isClick) { ripples.push({ x: p.tx, y: p.ty, born: now }); ripples.push({ x: p.tx, y: p.ty, born: now + 0.18 }); p.mode = 'fade'; }
+        else if (p.edge && p.keep) { p.mode = 'border'; p.hx = p.tx; p.hy = p.ty; }
+        else { p.mode = 'fade'; if (!p.edge) interiorSettled++; }
+      }
+    }
+    else if (p.mode === 'border') {
+      border++;
+      // Hover at the outline. The frame is held by the wind, not pinned.
+      const k = now * 1.3 + p.hoverPhase;
+      p.x = p.hx + Math.sin(k) * 3 + Math.sin(k * 0.37) * 2;
+      p.y = p.hy + Math.cos(k * 0.8) * 3;
+      p.rotV = 0.35 * Math.sin(k * 0.5);
+      // Occasionally a petal lets go from the outline and drifts off.
+      if (!settings.calm && Math.random() < dt * 0.02) { p.mode = 'fall'; p.fallAt = now; p.vx = rand(-30, 30); p.vy = rand(-20, 0); p.rippled = true; }
+    }
+    else if (p.mode === 'fall') {
+      if (now < p.fallAt) continue;
+      p.sway += dt * 2.2;
+      p.vy = Math.min(p.vy + 140 * dt, 95); p.vx *= 0.995;
+      p.x += (p.vx + Math.sin(p.sway) * 26) * dt; p.y += p.vy * dt;
+      if (p.y > waterline() - rand(0, 30)) {
+        // Only some landings ripple, or the waterline turns into a wall of rings.
+        if (!p.rippled) { if (Math.random() < 0.18) ripples.push({ x: p.x, y: p.y, born: now, small: true }); p.rippled = true; }
+        p.alpha -= dt * 2.5; if (p.alpha <= 0) petals.splice(i, 1);
+      }
+    }
+    else if (p.mode === 'orbit') {
+      p.ang += p.angV * dt;
+      p.x = f.x + f.w / 2 + Math.cos(p.ang) * p.rx; p.y = f.y + f.h / 2 + Math.sin(p.ang) * p.ry;
+    }
+    else if (p.mode === 'fade') {
+      p.alpha -= dt * 2.2; if (p.alpha <= 0) petals.splice(i, 1);
+    }
+  }
+  for (let i = ripples.length - 1; i >= 0; i--) if (now - ripples[i].born > 1.1) ripples.splice(i, 1);
+
+  // Reveal the viewer as the interior settles: it should feel *made of* the
+  // petals, so opacity follows them rather than a fixed timer.
+  if (phase === 'summoning') {
+    const frac = interiorTotal ? interiorSettled / interiorTotal : 1;
+    const reveal = clamp((frac - 0.15) / 0.7, 0, 1);
+    viewerEl.style.opacity = easeOutQuart(reveal).toFixed(3);
+    if (frac >= 0.98) { phase = 'held'; viewerEl.style.opacity = 1; viewerEl.classList.add('live'); }
+  } else if (phase === 'dismissing') {
+    const t = clamp((now - summonStart) / 0.45, 0, 1);
+    viewerEl.style.opacity = (1 - easeOutQuart(t)).toFixed(3);
+    if (t >= 1) phase = 'idle';
+  }
+  statEl.textContent = `${petals.length} petals · ${border} on frame · ${phase}`;
+}
+
+// ── Draw
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  for (const r of ripples) {
+    const t = (now - r.born) / 1.1; if (t < 0) continue;
+    const rad = (r.small ? 6 : 10) + t * (r.small ? 26 : 60);
+    ctx.beginPath(); ctx.ellipse(r.x, r.y, rad, rad * (r.small ? 0.35 : 0.7), 0, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255,255,255,${(1 - t) * (r.small ? 0.5 : 0.85)})`; ctx.lineWidth = 1.2; ctx.stroke();
+  }
+  for (const p of petals) {
+    if (p.alpha <= 0) continue;
+    if (p.mode === 'gather' && now - p.born < p.delay) continue;
+    if (p.mode === 'fall' && now < p.fallAt) continue;
+    const s = sprites[p.sprite], sc = p.size * SPRITE, fx = 0.35 + 0.65 * Math.abs(Math.cos(p.flip));
+    ctx.save(); ctx.globalAlpha = p.alpha; ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.scale(fx, 1);
+    ctx.drawImage(s, -sc / 2, -sc / 2, sc, sc); ctx.restore();
+  }
+}
+
+let last = performance.now();
+function frame(ts) {
+  const dt = Math.min((ts - last) / 1000, 0.05); last = ts; now = ts / 1000;
+  update(dt); draw(); requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+// ── Controls
+function setPressed(id, on) { document.getElementById(id).setAttribute('aria-pressed', String(on)); }
+function doClick() {
+  if (phase !== 'held') return;
+  const b = document.getElementById('target-btn').getBoundingClientRect();
+  clickTell(b.left + b.width / 2, b.top + b.height / 2);
+  const step = document.getElementById('step'); step.textContent = 'Step 3 · add to cart ✓';
+  setTimeout(() => step.textContent = 'Step 4 · open cart', 900);
+}
+document.getElementById('b-summon').onclick = summon;
+document.getElementById('b-dismiss').onclick = dismiss;
+document.getElementById('b-click').onclick = doClick;
+document.getElementById('b-think').onclick = () => setThinking(!thinking);
+document.getElementById('b-calm').onclick = () => { settings.calm = !settings.calm; setPressed('b-calm', settings.calm); };
+setPressed('b-calm', settings.calm);
+window.addEventListener('keydown', e => {
+  if (e.key === ' ') { e.preventDefault(); phase === 'held' ? dismiss() : summon(); }
+  else if (e.key === 'Escape') dismiss();
+  else if (e.key === 'c' || e.key === 'C') doClick();
+  else if (e.key === 't' || e.key === 'T') setThinking(!thinking);
+  else if (e.key === 'm' || e.key === 'M') document.getElementById('b-calm').click();
+});
+// Clicking inside the live viewer lands a petal where you clicked.
+viewerEl.addEventListener('click', e => { if (phase === 'held') clickTell(e.clientX, e.clientY); });
+</script>
+</body>
+</html>
