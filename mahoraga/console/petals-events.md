@@ -39,7 +39,12 @@ Attach a recognised, completed gesture to one of these.
 | `live.connect` | `{url?}` | Follow a service's live feed (`GET /v1/live`); `url` is the service origin, empty for the page's own. Connected by default; `?live=off` in the URL leaves it off, `?live=https://host:8080` points elsewhere |
 | `live.disconnect` | | Stop following |
 | `live.event` | `{kind, session, ...}` | Feed one event in by hand (the same shape the stream carries) |
-| `live.demo` | | A scripted run with drawn frames, for testing without a service |
+| `live.demo` | | A scripted run with drawn frames, for testing without a service (it honours the controls below) |
+| `pause` / `resume` / `stop` | `{session?}` (defaults to the active frame's task) | Controls on a running task, sent to the service (`POST /v1/live/{session}/pause|resume|stop`) and from there to the agent. Pause holds it before its next step and freezes the frame's border; resume thaws it with a breath; stop ends the run and the frame settles as stopped, most of its border letting go. `control.rejected` when nothing is running under the frame |
+| `hold` | `{session?}` | Pause if running, resume if paused: one gesture for both |
+
+A suggested mapping for the task controls: an open palm held still over the
+frame is `hold`; a fist closing over it is `stop`.
 
 While a form is up, the continuous gestures change meaning: `grab` rotates
 the form (a throw keeps it spinning; a pinch that does not travel is a
@@ -106,7 +111,9 @@ from the console, n8n, the CLI or the dev panel's task field:
 | `navigate` | The address and title update; a wave runs around the border and a breeze of petals crosses the page |
 | `step` | The chrome shows `Step n · goal`; a click sends a petal to the element the agent clicked, typing settles a few petals across the field, a scroll blows down the page. Element positions come from the agent's own DOM state, as fractions of the viewport |
 | `tab.opened` / `tab.closed` | The session's first tab is its frame; further tabs with a real URL get frames of their own and sink when they close |
-| `task.finished` / `task.failed` | The border calms and the page dims (a failure scatters part of the border first); the step line reads the result or the error |
+| `task.paused` / `task.resumed` | The border freezes in place and the page cools; resume thaws it with a breath. The step line reads `Paused · …` |
+| `task.stopping` | The step line reads `Stopping…` until the agent's run ends |
+| `task.finished` / `task.failed` | The border calms and the page dims (a failure scatters part of the border first, a stop lets most of it go); the step line reads the result, the error, or `Stopped` |
 
 A page that opens mid-task catches up from the stream's opening snapshot.
 The service's hooks report the agent's steps and take a screenshot every
@@ -115,9 +122,10 @@ Integrations can push the same events with `POST /v1/live/events`.
 
 Outcomes for the gesture side: `task.started {session, task, tab}`,
 `agent.navigated {session, tab, url, title}`, `agent.step {session, tab, n,
-goal, actions}`, `agent.finished {session, tab, success, result, error}`,
-`live.connected`, `live.disconnected {retryIn}`, `run.sent`, `run.finished`,
-`run.rejected`. `MahoragaTabs.state.live` lists the feed status and every
+goal, actions}`, `task.paused` / `task.resumed` / `task.stopping {session,
+tab, step}`, `agent.finished {session, tab, success, stopped, result, error}`,
+`control.rejected {action, reason}`, `live.connected`, `live.disconnected
+{retryIn}`, `run.sent`, `run.finished`, `run.rejected`. `MahoragaTabs.state.live` lists the feed status and every
 session with its frames.
 
 `MahoragaTabs.state` returns the deck order, active tab, placement, scrub
@@ -143,7 +151,8 @@ intent and every shape, plus a text field. The page drives the same surface from
 arrows riffle, B back, D duplicate, Esc close, C click, T thinking, M calm,
 + and - scale, 1/2/3 form the cube, brain, solar system, F cycles cube faces,
 U unpicks, 0 dismisses the form, 4 forms the map at your location, 5 deals
-the cards and S shuffles them, L toggles the live feed, G plays the demo run. A click without a drag while a form is up
+the cards and S shuffles them, L toggles the live feed, G plays the demo run,
+H holds or resumes the active frame's task, X stops it. A click without a drag while a form is up
 is a `pick`.
 The panel at top left logs the last outcomes as they fire. `P` (or the
 Petals button) switches between the real petal sprites in `assets/petals`

@@ -113,6 +113,9 @@ class WorkflowExecutor:
         watcher = asyncio.create_task(live.watch(self._session.id, lambda: self._browser))
         try:
             for n, node in enumerate(workflow.execution_order(), start=1):
+                if not await live.feed.gate(self._session.id):  # held while paused; False once stopped
+                    overall_ok = False
+                    break
                 params = _render(node.params, context)
                 live.feed.step(
                     self._session.id, n, params.get("task") or params.get("url") or node.type,
@@ -135,7 +138,9 @@ class WorkflowExecutor:
             if failure:
                 live.feed.fail(self._session.id, failure)
             else:
-                live.feed.finish(self._session.id, last_output if isinstance(last_output, str) else None)
+                live.feed.finish(
+                    self._session.id, last_output if isinstance(last_output, str) else None, success=overall_ok
+                )
 
         return ExecutionResult(ok=overall_ok, nodes=results, result=last_output)
 
@@ -195,9 +200,8 @@ class WorkflowExecutor:
             raise ValueError("agent node requires a 'task'")
         from browser_use import Agent
 
-        from mahoraga.engine import build_llm
-
         from mahoraga import live
+        from mahoraga.engine import build_llm
 
         settings = self.settings.resolve()
         browser = await self._ensure_browser()
@@ -209,5 +213,11 @@ class WorkflowExecutor:
             use_vision=settings.use_vision,
             **hooks["agent"],
         )
-        history = await agent.run(max_steps=settings.max_steps, **hooks["run"])
+        if self._session is not None:
+            live.feed.attach(self._session.id, agent)
+        try:
+            history = await agent.run(max_steps=settings.max_steps, **hooks["run"])
+        finally:
+            if self._session is not None:
+                live.feed.attach(self._session.id, None)
         return history.final_result()

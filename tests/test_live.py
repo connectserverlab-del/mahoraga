@@ -194,3 +194,123 @@ def test_capture_uses_the_browser_session_api(data, mime):
         assert calls == [{"format": "jpeg", "quality": 55}]
     finally:
         live.feed = saved
+
+
+# ── controls ─────────────────────────────────────────────────────────────────
+
+
+class _Agent:
+    def __init__(self):
+        self.calls = []
+
+    def pause(self):
+        self.calls.append("pause")
+
+    def resume(self):
+        self.calls.append("resume")
+
+    def stop(self):
+        self.calls.append("stop")
+
+
+def _drain(q):
+    out = []
+    while not q.empty():
+        out.append(q.get_nowait())
+    return out
+
+
+def test_controls_reach_the_agent_and_emit():
+    async def run():
+        feed = live.LiveFeed()
+        q: asyncio.Queue = asyncio.Queue()
+        feed._subs.add(q)
+        s = feed.start("t")
+        agent = _Agent()
+        feed.attach(s.id, agent)
+        feed.control(s.id, "pause")
+        feed.control(s.id, "pause")  # idempotent
+        assert s.paused and not await _gate_open(feed, s.id)
+        feed.control(s.id, "resume")
+        assert not s.paused and await _gate_open(feed, s.id)
+        feed.control(s.id, "stop")
+        assert s.stopping and s.status == "running"  # the run ends on its own...
+        feed.finish(s.id, None, success=False)  # ...and is then reported as stopped
+        assert s.status == "stopped"
+        kinds = [e["kind"] for e in _drain(q)]
+        assert kinds == ["task.started", "task.paused", "task.resumed", "task.stopping", "task.finished"]
+        assert agent.calls == ["pause", "resume", "stop"]
+        assert feed.snapshot()["sessions"][0]["status"] == "stopped"
+
+    asyncio.run(run())
+
+
+async def _gate_open(feed, session_id):
+    try:
+        return await asyncio.wait_for(feed.gate(session_id), 0.05)
+    except asyncio.TimeoutError:
+        return False
+
+
+def test_gate_returns_false_once_stopped():
+    async def run():
+        feed = live.LiveFeed()
+        s = feed.start("replay")
+        assert await feed.gate(s.id) is True
+        feed.control(s.id, "pause")
+        waiter = asyncio.create_task(feed.gate(s.id))
+        await asyncio.sleep(0.02)
+        assert not waiter.done()
+        feed.control(s.id, "stop")  # releases the gate, and answers False
+        assert await waiter is False
+
+    asyncio.run(run())
+
+
+def test_stop_without_an_agent_finishes_now_and_a_stop_error_is_still_a_stop():
+    feed = live.LiveFeed()
+    s = feed.start("external")
+    feed.control(s.id, "stop")
+    assert s.status == "stopped"
+    ev = [e for e in feed.recent if e["kind"] == "task.finished"][-1]
+    assert ev["stopped"] is True and ev["success"] is False
+
+    s2 = feed.start("agent")
+    feed.attach(s2.id, _Agent())
+    feed.control(s2.id, "stop")
+    feed.fail(s2.id, "InterruptedError: stopped")
+    assert s2.status == "stopped"
+
+
+def test_control_rejects_unknown_or_finished_sessions():
+    feed = live.LiveFeed()
+    with pytest.raises(LookupError):
+        feed.control("nope", "pause")
+    s = feed.start("t")
+    with pytest.raises(ValueError):
+        feed.control(s.id, "dance")
+    feed.finish(s.id, "ok")
+    with pytest.raises(ValueError):
+        feed.control(s.id, "pause")
+
+
+def test_control_routes():
+    from fastapi.testclient import TestClient
+
+    from mahoraga.server import create_app
+
+    feed = live.LiveFeed()
+    live.feed, saved = feed, live.feed
+    try:
+        client = TestClient(create_app())
+        r = client.post("/v1/live/events", json={"kind": "task.started", "task": "route test"})
+        sid = r.json()["session"]
+        assert client.post(f"/v1/live/{sid}/pause").json()["paused"] is True
+        assert client.post(f"/v1/live/{sid}/resume").json()["paused"] is False
+        assert client.post(f"/v1/live/{sid}/dance").status_code == 404
+        assert client.post("/v1/live/nope/pause").status_code == 404
+        assert client.post(f"/v1/live/{sid}/stop").json()["status"] == "stopped"
+        assert client.post(f"/v1/live/{sid}/pause").status_code == 409
+        assert client.get("/v1/live/sessions").json()["sessions"][0]["status"] == "stopped"
+    finally:
+        live.feed = saved

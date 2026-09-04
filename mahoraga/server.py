@@ -308,6 +308,18 @@ def create_app() -> FastAPI:
             headers={"Cache-Control": "no-store", "X-Frame-Seq": str(session.shot_seq)},
         )
 
+    @app.post("/v1/live/{session_id}/{action}")
+    async def live_control(session_id: str, action: str, _: None = Depends(require_api_key)) -> dict:
+        """Pause, resume or stop a running task."""
+        if action not in ("pause", "resume", "stop"):
+            raise HTTPException(status_code=404, detail="Unknown action")
+        try:
+            return live.feed.control(session_id, action).to_dict()
+        except LookupError:
+            raise HTTPException(status_code=404, detail="Unknown session") from None
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from None
+
     @app.post("/v1/live/events")
     async def live_event(body: LiveEvent, _: None = Depends(require_api_key)) -> dict:
         kind = body.kind

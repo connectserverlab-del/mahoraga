@@ -13,6 +13,8 @@ Two surfaces:
   opens mid-task can catch up; after that, one event per thing that happens.
 * ``GET /v1/live/screenshot/{session}`` — the latest frame of that session's
   current page, refetched whenever a ``screenshot`` event says it changed.
+* ``POST /v1/live/{session}/pause|resume|stop`` — controls on a running
+  task, reaching the Browser Use agent (or the replay executor) driving it.
 
 Nothing here may break a run: every hook swallows its own errors.
 """
@@ -94,12 +96,17 @@ class LiveSession:
     shot: bytes | None = None
     shot_type: str = "image/jpeg"
     shot_seq: int = 0
+    paused: bool = False
+    stopping: bool = False
+    agent: Any = None  # the Browser Use Agent driving this session, while it runs
+    resume_event: asyncio.Event | None = None  # set while the session may proceed
 
     def to_dict(self) -> dict:
         return {
             "session": self.id,
             "task": self.task,
             "status": self.status,
+            "paused": self.paused,
             "provider": self.provider,
             "model": self.model,
             "url": self.url,
@@ -134,6 +141,11 @@ class LiveFeed:
         session = LiveSession(
             id=session_id or ("ls_" + secrets.token_hex(4)), task=task, provider=provider, model=model
         )
+        try:
+            session.resume_event = asyncio.Event()
+            session.resume_event.set()
+        except RuntimeError:  # no event loop: replays gate on it, agents do not need it
+            session.resume_event = None
         self.sessions[session.id] = session
         self._trim()
         self.emit("task.started", session.id, task=task, provider=provider, model=model)
@@ -146,22 +158,89 @@ class LiveFeed:
         s = self.sessions.get(session_id)
         if s is None or s.status != "running":
             return
-        s.status = "done" if success else "failed"
+        stopped = s.stopping
+        s.status = "stopped" if stopped else "done" if success else "failed"
         s.finished = _now()
+        s.paused = False
+        s.agent = None
         s.result = (result or "")[:_RESULT_CHARS] or None
         self.emit(
-            "task.finished", session_id, success=success, result=s.result, steps=s.step,
-            seconds=round(s.finished - s.started, 1),
+            "task.finished", session_id, success=success and not stopped, stopped=stopped, result=s.result,
+            steps=s.step, seconds=round(s.finished - s.started, 1),
         )
 
     def fail(self, session_id: str, error: str) -> None:
         s = self.sessions.get(session_id)
         if s is None or s.status != "running":
             return
+        if s.stopping:  # a stop that surfaced as an error is still a stop
+            self.finish(session_id, None, success=False)
+            return
         s.status = "failed"
         s.finished = _now()
+        s.paused = False
+        s.agent = None
         s.error = error[:_RESULT_CHARS]
         self.emit("task.failed", session_id, error=s.error, steps=s.step)
+
+    # ── controls: pause, resume, stop ────────────────────────────────────
+
+    def attach(self, session_id: str, agent: Any) -> None:
+        """Hand the feed the agent driving a session, so controls reach it."""
+        s = self.sessions.get(session_id)
+        if s is not None:
+            s.agent = agent
+
+    def control(self, session_id: str, action: str) -> LiveSession:
+        """``pause`` holds the agent before its next step, ``resume`` lets it
+        go on, ``stop`` ends the run (its frame settles as stopped).
+
+        Raises ``LookupError`` for an unknown session and ``ValueError`` for
+        one that is no longer running or an unknown action. A session that has
+        no agent attached (one fed from outside) just records the state and
+        emits the event; the integration is expected to honour it.
+        """
+        s = self.sessions.get(session_id)
+        if s is None:
+            raise LookupError(session_id)
+        if s.status != "running":
+            raise ValueError(f"session is {s.status}")
+        if action == "pause":
+            if not s.paused:
+                s.paused = True
+                if s.resume_event is not None:
+                    s.resume_event.clear()
+                _call(s.agent, "pause")
+                self.emit("task.paused", session_id, step=s.step)
+        elif action == "resume":
+            if s.paused:
+                s.paused = False
+                if s.resume_event is not None:
+                    s.resume_event.set()
+                _call(s.agent, "resume")
+                self.emit("task.resumed", session_id, step=s.step)
+        elif action == "stop":
+            if not s.stopping:
+                s.stopping = True
+                self.emit("task.stopping", session_id, step=s.step)
+                if s.resume_event is not None:
+                    s.resume_event.set()
+                if s.agent is not None:
+                    _call(s.agent, "stop")  # the run ends on its own; finish() reports it as stopped
+                else:
+                    self.finish(session_id, None, success=False)
+        else:
+            raise ValueError(f"unknown action: {action}")
+        return s
+
+    async def gate(self, session_id: str) -> bool:
+        """For step-by-step runners: wait while paused; False once stopped."""
+        s = self.sessions.get(session_id)
+        if s is None:
+            return True
+        if s.resume_event is not None:
+            await s.resume_event.wait()
+        return not s.stopping
 
     def _trim(self) -> None:
         """Forget the oldest finished sessions once there are more than a few."""
@@ -251,6 +330,16 @@ class LiveFeed:
                 yield _sse(event["kind"], event)
         finally:
             self._subs.discard(q)
+
+
+def _call(obj: Any, method: str) -> None:
+    fn = getattr(obj, method, None)
+    if fn is None:
+        return
+    try:
+        fn()
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("live: agent.%s failed: %r", method, exc)
 
 
 def _sse(kind: str, data: dict) -> str:
