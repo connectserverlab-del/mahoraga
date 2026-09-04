@@ -70,7 +70,15 @@
   .page .row .sub { flex: 1; opacity: .8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
   /* ── HUD ────────────────────────────────────────────────────────────────── */
-  .hud { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 300; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: center; max-width: 96vw; }
+  .hud { position: fixed; left: 50%; bottom: 62px; transform: translateX(-50%); z-index: 300; display: flex; flex-direction: column; gap: 6px; max-width: 96vw;
+    background: rgba(255,255,255,.4); border: 1px solid var(--glass-line); border-radius: 16px; padding: 10px 12px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+  .hud[hidden] { display: none; }
+  .hud .grp { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  .hud .gl { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #8a7a96; width: 74px; flex-shrink: 0; }
+  .hud input { font: inherit; font-size: 12px; padding: 6px 10px; border-radius: 12px; border: 1px solid var(--glass-line); background: rgba(255,255,255,.7); color: #3f3550; width: 130px; }
+  .devtoggle { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 300; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6b5f7a;
+    background: var(--glass); border: 1px solid var(--glass-line); border-radius: 20px; padding: 8px 14px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); cursor: pointer; }
+  .devtoggle kbd { opacity: .6; margin-right: 4px; }
   .hud button { font: inherit; font-size: 11px; letter-spacing: .09em; text-transform: uppercase; color: #6b5f7a;
     background: var(--glass); border: 1px solid var(--glass-line); border-radius: 20px; padding: 8px 14px;
     backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); cursor: pointer; transition: .15s; white-space: nowrap; }
@@ -107,22 +115,19 @@
 <canvas id="petals"></canvas>
 
 <div class="panel log" id="log"></div>
-<div class="hud">
-  <button data-cmd="summon"><kbd>Space</kbd>New tab</button>
-  <button data-cmd="prev"><kbd>←</kbd>Prev</button>
-  <button data-cmd="next"><kbd>→</kbd>Next</button>
-  <button data-cmd="back"><kbd>B</kbd>Send back</button>
-  <button data-cmd="duplicate"><kbd>D</kbd>Duplicate</button>
-  <button data-cmd="close"><kbd>Esc</kbd>Close</button>
-  <button data-cmd="click"><kbd>C</kbd>Click</button>
-  <button data-cmd="think" id="b-think" aria-pressed="false"><kbd>T</kbd>Thinking</button>
-  <button data-cmd="calm" id="b-calm" aria-pressed="false"><kbd>M</kbd>Calm</button>
-  <span style="width:100%"></span>
-  <button data-cmd="form.cube"><kbd>1</kbd>Cube</button>
-  <button data-cmd="form.brain"><kbd>2</kbd>Brain</button>
-  <button data-cmd="form.solar"><kbd>3</kbd>Solar system</button>
-  <button data-cmd="form.faces" id="b-faces"><kbd>F</kbd>Faces: leaves</button>
-  <button data-cmd="form.dismiss"><kbd>0</kbd>Dismiss form</button>
+<div class="devtoggle" id="devtoggle"><kbd>`</kbd>dev panel</div>
+<div class="hud" id="dev" hidden>
+  <div class="grp"><span class="gl">deck</span>
+    <button data-cmd="summon"><kbd>Space</kbd>New tab</button><button data-cmd="prev"><kbd>←</kbd>Prev</button><button data-cmd="next"><kbd>→</kbd>Next</button>
+    <button data-cmd="back"><kbd>B</kbd>Send back</button><button data-cmd="duplicate"><kbd>D</kbd>Duplicate</button><button data-cmd="close"><kbd>Esc</kbd>Close</button>
+    <button data-cmd="click"><kbd>C</kbd>Click</button><button data-cmd="think" id="b-think" aria-pressed="false"><kbd>T</kbd>Thinking</button><button data-cmd="calm" id="b-calm" aria-pressed="false"><kbd>M</kbd>Calm</button>
+  </div>
+  <div class="grp" id="grp-3D"><span class="gl">3D</span></div>
+  <div class="grp" id="grp-compound"><span class="gl">compound</span></div>
+  <div class="grp" id="grp-2D"><span class="gl">2D</span><input id="text-in" type="text" placeholder="text…" value="Mahoraga" /><button data-cmd="form.text">Form text</button></div>
+  <div class="grp"><span class="gl">form</span>
+    <button data-cmd="form.faces" id="b-faces"><kbd>F</kbd>Faces: leaves</button><button data-cmd="unpick"><kbd>U</kbd>Unpick</button><button data-cmd="form.dismiss"><kbd>0</kbd>Dismiss form</button>
+  </div>
 </div>
 <div class="label" id="label"></div>
 <div class="panel stat" id="stat"></div>
@@ -516,10 +521,10 @@ function duplicate() {
 // rotates and projects those points every frame, so forming, rotating and
 // zooming all reuse the same "follow the target" flight and settle.
 const form = { kind: null, faces: 'leaves', petals: [], picked: null, planets: [], onSettle: null, settled: 0, total: 0 };
-const cam = { yaw: 0.6, pitch: -0.35, vyaw: 0, vpitch: 0, zoom: 1, zoomT: 1, focus: [0, 0, 0], focusT: [0, 0, 0], D: 6.5 };
+const cam = { yaw: 0.6, pitch: 0.35, vyaw: 0, vpitch: 0, zoom: 1, zoomT: 1, focus: [0, 0, 0], focusT: [0, 0, 0], D: 6.5 };
 const labelEl = document.getElementById('label');
 
-function formSize() { return Math.min(W, H) * (form.kind === 'solar' ? 0.14 : 0.19) * cam.zoom; }
+function formSize() { return Math.min(W, H) * (form.size || 0.19) * cam.zoom; }
 function rot3(x, y, z) {
   const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), cx = Math.cos(cam.pitch), sx = Math.sin(cam.pitch);
   const x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
@@ -528,7 +533,7 @@ function rot3(x, y, z) {
 function project(x, y, z) {
   const [rx, ry, rz] = rot3(x - cam.focus[0], y - cam.focus[1], z - cam.focus[2]);
   const f = cam.D / (cam.D + rz), S = formSize();
-  return { x: W / 2 + view.x + rx * f * S, y: H * 0.44 + view.y + ry * f * S, f, z: rz };
+  return { x: W / 2 + view.x + rx * f * S, y: H * 0.44 + view.y - ry * f * S, f, z: rz };   // world +y is up
 }
 // Per-petal follow: projects its surface point and records depth cues.
 function followForm(p) {
@@ -545,25 +550,182 @@ function sphereSample(i, n) {
   return [Math.cos(th) * Math.sin(phi), Math.cos(phi), Math.sin(th) * Math.sin(phi)];
 }
 
-const FACES = [                 // normal, tangent a, tangent b
+// ── Form builders ───────────────────────────────────────────────────────────
+// A form is a list of surface points: {p3, sprite?, sizeScale?, dim?, edge?,
+// face?}. Builders may also register flat faces (polygons of 3D corners) so
+// the face modes can pane them, and a size or camera that suits the shape.
+const N = k => Math.round(k * (settings.calm ? 0.45 : 1));
+const lerp3 = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const sub3 = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const norm3 = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+const triArea = ([a, b, c]) => { const n = cross(sub3(b, a), sub3(c, a)); return Math.hypot(n[0], n[1], n[2]) / 2; };
+
+// Flat-faced solids: 30% of each face's petals sit on its edges, the rest
+// fill it (fan triangulation, area-weighted). Registers the faces for paning.
+function polyFaces(faces, perFace, sprite) {
+  const out = []; form.faceList = faces;
+  faces.forEach((corners, fi) => {
+    const n = N(perFace), tris = [];
+    for (let i = 1; i < corners.length - 1; i++) tris.push([corners[0], corners[i], corners[i + 1]]);
+    const areas = tris.map(triArea), total = areas.reduce((a, b) => a + b, 0);
+    for (let i = 0; i < n; i++) {
+      if (i < n * 0.3) { const e = (Math.random() * corners.length) | 0; out.push({ p3: lerp3(corners[e], corners[(e + 1) % corners.length], Math.random()), face: fi, edge: true, sprite }); }
+      else {
+        let r = Math.random() * total, ti = 0; while (ti < tris.length - 1 && r > areas[ti]) { r -= areas[ti]; ti++; }
+        const [a, b, c] = tris[ti]; let u = Math.random(), v = Math.random(); if (u + v > 1) { u = 1 - u; v = 1 - v; } const w = 1 - u - v;
+        out.push({ p3: [a[0] * w + b[0] * u + c[0] * v, a[1] * w + b[1] * u + c[1] * v, a[2] * w + b[2] * u + c[2] * v], face: fi, edge: false, sprite });
+      }
+    }
+  });
+  return out;
+}
+// Surface of revolution around Y: r(y) for y in [y0, y1]. Rejection-samples
+// so petals spread evenly over the surface.
+function lathe(rOf, y0, y1, n, extra) {
+  const out = [], rmax = Math.max(...Array.from({ length: 20 }, (_, i) => rOf(y0 + (y1 - y0) * i / 19)));
+  let made = 0, guard = 0;
+  while (made < n && guard++ < n * 20) {
+    const y = rand(y0, y1), r = rOf(y); if (Math.random() > r / rmax) continue;
+    const a = rand(0, Math.PI * 2); out.push({ p3: [Math.cos(a) * r, y, Math.sin(a) * r], ...(extra || {}) }); made++;
+  }
+  return out;
+}
+function disc(y, r, n, extra, ringShare) {
+  const out = []; for (let i = 0; i < n; i++) { const a = rand(0, Math.PI * 2), edge = i < n * (ringShare === undefined ? 0.35 : ringShare), rr = edge ? r : r * Math.sqrt(Math.random()); out.push({ p3: [Math.cos(a) * rr, y, Math.sin(a) * rr], edge, ...(extra || {}) }); }
+  return out;
+}
+// A tube of radius `r` along a path t → [x,y,z], t in [0,1].
+function tube(path, r, n, extra) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const t = Math.random(), c = path(t), d = norm3(sub3(path(Math.min(1, t + 0.01)), path(Math.max(0, t - 0.01))));
+    const ref = Math.abs(d[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0], u = norm3(cross(d, ref)), v = cross(d, u), a = rand(0, Math.PI * 2);
+    out.push({ p3: [c[0] + (u[0] * Math.cos(a) + v[0] * Math.sin(a)) * r, c[1] + (u[1] * Math.cos(a) + v[1] * Math.sin(a)) * r, c[2] + (u[2] * Math.cos(a) + v[2] * Math.sin(a)) * r], ...(extra || {}) });
+  }
+  return out;
+}
+function sphereAt(c, r, n, extra) { const out = []; for (let i = 0; i < n; i++) { const q = sphereSample(i, n); out.push({ p3: [c[0] + q[0] * r, c[1] + q[1] * r, c[2] + q[2] * r], ...(extra || {}) }); } return out; }
+// The surface of an axis-aligned box, faces picked by area.
+function boxSurface(c, sz, n, extra, warp) {
+  const out = [], [sx, sy, sz2] = sz, areas = [sy * sz2, sy * sz2, sx * sz2, sx * sz2, sx * sy, sx * sy], total = areas.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < n; i++) {
+    let r = Math.random() * total, f = 0; while (f < 5 && r > areas[f]) { r -= areas[f]; f++; }
+    const u = rand(-1, 1), v = rand(-1, 1), s = f % 2 ? -1 : 1; let pt;
+    if (f < 2) pt = [s * sx, u * sy, v * sz2]; else if (f < 4) pt = [u * sx, s * sy, v * sz2]; else pt = [u * sx, v * sy, s * sz2];
+    pt = [c[0] + pt[0], c[1] + pt[1], c[2] + pt[2]]; if (warp) pt = warp(pt);
+    out.push({ p3: pt, ...(extra || {}) });
+  }
+  return out;
+}
+const pinkMix = i => (i % 3 ? 2 : 3);
+
+// ── 3D primitives
+const FACES = [
   { n: [1, 0, 0], a: [0, 1, 0], b: [0, 0, 1] }, { n: [-1, 0, 0], a: [0, 1, 0], b: [0, 0, 1] },
   { n: [0, 1, 0], a: [1, 0, 0], b: [0, 0, 1] }, { n: [0, -1, 0], a: [1, 0, 0], b: [0, 0, 1] },
   { n: [0, 0, 1], a: [1, 0, 0], b: [0, 1, 0] }, { n: [0, 0, -1], a: [1, 0, 0], b: [0, 1, 0] },
 ];
 function facePoint(fc, u, v) { return [fc.n[0] + fc.a[0] * u + fc.b[0] * v, fc.n[1] + fc.a[1] * u + fc.b[1] * v, fc.n[2] + fc.a[2] * u + fc.b[2] * v]; }
-
-function buildCube() {
-  const out = [], per = settings.calm ? 70 : 150;
-  FACES.forEach((fc, fi) => {
-    for (let i = 0; i < per; i++) {
-      const onEdge = i < per * 0.3; let u, v;
-      if (onEdge) { const t = rand(-1, 1); if (i % 2) { u = t; v = Math.random() < 0.5 ? -1 : 1; } else { v = t; u = Math.random() < 0.5 ? -1 : 1; } }
-      else { u = rand(-0.92, 0.92); v = rand(-0.92, 0.92); }
-      out.push({ p3: facePoint(fc, u, v), face: fi, edge: onEdge });
-    }
-  });
+function buildCube() { return polyFaces(FACES.map(fc => [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => facePoint(fc, u, v))), 150); }
+function buildSphere() { return sphereAt([0, 0, 0], 1, N(900)).map((q, i) => ({ ...q, sprite: pinkMix(i) })); }
+function buildTorus() {
+  const out = [], R = 0.8, r = 0.34; let made = 0, guard = 0;
+  while (made < N(1000) && guard++ < 40000) {
+    const u = rand(0, Math.PI * 2), v = rand(0, Math.PI * 2); if (Math.random() > (R + r * Math.cos(v)) / (R + r)) continue;
+    out.push({ p3: [(R + r * Math.cos(v)) * Math.cos(u), r * Math.sin(v), (R + r * Math.cos(v)) * Math.sin(u)], sprite: pinkMix(made) }); made++;
+  }
   return out;
 }
+function buildPyramid() {
+  const apex = [0, 1, 0], b = [[-1, -0.8, -1], [1, -0.8, -1], [1, -0.8, 1], [-1, -0.8, 1]];
+  return polyFaces([[apex, b[0], b[1]], [apex, b[1], b[2]], [apex, b[2], b[3]], [apex, b[3], b[0]], [b[3], b[2], b[1], b[0]]], 150);
+}
+function buildCylinder() { return [...lathe(() => 0.7, -0.9, 0.9, N(620)), ...disc(0.9, 0.7, N(170)), ...disc(-0.9, 0.7, N(170))].map((q, i) => ({ ...q, sprite: pinkMix(i) })); }
+function buildCone() { return [...lathe(y => 0.9 * (0.9 - y) / 1.8, -0.9, 0.9, N(620)), ...disc(-0.9, 0.9, N(220))].map((q, i) => ({ ...q, sprite: pinkMix(i) })); }
+function buildIcosahedron() {
+  const t = (1 + Math.sqrt(5)) / 2, s = 1 / Math.hypot(1, t);
+  const V = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]].map(v => v.map(c => c * s * 1.15));
+  const adj = (a, b) => Math.abs(Math.hypot(...sub3(V[a], V[b])) - 2 * s * 1.15) < 1e-6, faces = [];
+  for (let a = 0; a < 12; a++) for (let b = a + 1; b < 12; b++) for (let c = b + 1; c < 12; c++) if (adj(a, b) && adj(b, c) && adj(a, c)) faces.push([V[a], V[b], V[c]]);
+  return polyFaces(faces, 48);
+}
+
+// ── Compound objects
+function buildDNA() {
+  const out = [], turns = 2.5, R = 0.5, Hh = 1.2;
+  const strand = ph => t => [R * Math.cos(Math.PI * 2 * turns * t + ph), (t - 0.5) * 2 * Hh, R * Math.sin(Math.PI * 2 * turns * t + ph)];
+  out.push(...tube(strand(0), 0.06, N(420), { sprite: 3 }), ...tube(strand(Math.PI), 0.06, N(420), { sprite: 2 }));
+  for (let k = 0; k < 22; k++) {
+    const t = (k + 0.5) / 22, a = strand(0)(t), b = strand(Math.PI)(t), pair = k % 2 ? [6, 8] : [8, 6];
+    for (let i = 0; i < N(14); i++) { const u = (i + 0.5) / N(14); out.push({ p3: lerp3(a, b, u), sprite: u < 0.5 ? pair[0] : pair[1], sizeScale: 0.8 }); }
+  }
+  return out;
+}
+function buildLantern() {
+  const body = y => 0.74 * (1 - 0.32 * Math.pow(y / 0.9, 2));
+  const out = [...lathe(body, -0.85, 0.85, N(700), { sprite: 8 }).map((q, i) => (i % 4 ? q : { ...q, sprite: 5 }))];
+  for (let y = -0.68; y <= 0.7; y += 0.17) out.push(...lathe(() => body(y) + 0.02, y - 0.01, y + 0.01, N(48), { sprite: 7, sizeScale: 0.7, edge: true }));
+  out.push(...disc(0.9, 0.42, N(90), { sprite: 4, sizeScale: 0.8 }), ...disc(-0.9, 0.42, N(90), { sprite: 4, sizeScale: 0.8 }));
+  out.push(...tube(t => [0.36 * Math.cos(Math.PI * t), 0.9 + 0.36 * Math.sin(Math.PI * t), 0], 0.035, N(70), { sprite: 4, sizeScale: 0.7 }));
+  out.push(...lathe(y => 0.05 + 0.06 * ((-0.9 - y) / 0.45), -1.35, -0.9, N(70), { sprite: 7, sizeScale: 0.75 }));   // tassel
+  return out;
+}
+function buildTorii() {
+  const out = [], red = { sprite: 7 }, dark = { sprite: 4 };
+  for (const sx of [-0.7, 0.7]) out.push(...tube(t => [sx * (1 + 0.04 * (1 - t)), -1 + 1.85 * t, 0], 0.09, N(240), red));
+  const curve = p => [p[0], p[1] + 0.13 * Math.pow(p[0] / 1.15, 2) * (p[0] * p[0] > 0.5 ? 1 : 0.6), p[2]];
+  out.push(...boxSurface([0, 0.97, 0], [1.2, 0.07, 0.11], N(330), dark, curve));           // kasagi
+  out.push(...boxSurface([0, 0.85, 0], [1.05, 0.045, 0.09], N(200), red));                   // shimaki
+  out.push(...boxSurface([0, 0.45, 0], [0.98, 0.05, 0.07], N(200), red));                    // nuki
+  out.push(...boxSurface([0, 0.65, 0], [0.09, 0.15, 0.03], N(50), dark));                    // gakuzuka
+  return out;
+}
+function buildDharma() {
+  const out = [], gold = { sprite: 5 };
+  out.push(...tube(t => [Math.cos(Math.PI * 2 * t), Math.sin(Math.PI * 2 * t), 0], 0.07, N(520), gold));
+  out.push(...sphereAt([0, 0, 0], 0.18, N(130), { sprite: 8 }));
+  for (let k = 0; k < 8; k++) {
+    const a = k * Math.PI / 4, dx = Math.cos(a), dy = Math.sin(a);
+    out.push(...tube(t => [dx * (0.18 + 0.82 * t), dy * (0.18 + 0.82 * t), 0], 0.045, N(55), { sprite: k % 2 ? 5 : 8 }));
+    out.push(...sphereAt([dx * 1.16, dy * 1.16, 0], 0.09, N(34), { sprite: 3 }));
+  }
+  return out;
+}
+
+// ── 2D shapes: draw anything on a small canvas, then sample its pixels. The
+//    outline gets fuller, deeper petals so the silhouette stays crisp.
+function raster(draw, n, aspect, petalScale) {
+  aspect = aspect || 1; petalScale = petalScale || 1; const Wc = Math.round(220 * aspect), Hc = 220, c = document.createElement('canvas'); c.width = Wc; c.height = Hc;
+  const g = c.getContext('2d'); g.fillStyle = '#000'; g.translate(Wc / 2, Hc / 2); g.scale(Hc / 2 * 0.9, Hc / 2 * 0.9); draw(g);
+  const d = g.getImageData(0, 0, Wc, Hc).data, filled = [], edge = [], at = (x, y) => x >= 0 && y >= 0 && x < Wc && y < Hc && d[(y * Wc + x) * 4 + 3] > 80;
+  for (let y = 0; y < Hc; y++) for (let x = 0; x < Wc; x++) if (at(x, y)) { const e = !(at(x - 1, y) && at(x + 1, y) && at(x, y - 1) && at(x, y + 1)); (e ? edge : filled).push([x, y]); }
+  const out = [], toP = ([x, y]) => [((x + 0.5) / Wc * 2 - 1) * aspect, -((y + 0.5) / Hc * 2 - 1), rand(-0.03, 0.03)];
+  const ne = Math.min(edge.length, Math.round(n * 0.42));
+  for (let i = 0; i < ne; i++) out.push({ p3: toP(edge[(Math.random() * edge.length) | 0]), edge: true, sprite: 3, sizeScale: 1.1 * petalScale });
+  for (let i = ne; i < n && filled.length; i++) out.push({ p3: toP(filled[(Math.random() * filled.length) | 0]), sprite: i % 2 ? 1 : 2, sizeScale: 0.9 * petalScale });
+  form.flat = true; return out;
+}
+const poly = (g, k, r0, r1, rot) => { g.beginPath(); for (let i = 0; i < k * 2; i++) { const a = rot + i * Math.PI / k, r = i % 2 ? r1 : r0; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); } g.closePath(); g.fill(); };
+const SHAPES_2D = {
+  circle: g => { g.beginPath(); g.arc(0, 0, 1, 0, Math.PI * 2); g.fill(); },
+  ring: g => { g.beginPath(); g.arc(0, 0, 1, 0, Math.PI * 2); g.arc(0, 0, 0.62, 0, Math.PI * 2, true); g.fill('evenodd'); },
+  square: g => g.fillRect(-0.9, -0.9, 1.8, 1.8),
+  triangle: g => { g.beginPath(); g.moveTo(0, -1); g.lineTo(1, 0.85); g.lineTo(-1, 0.85); g.closePath(); g.fill(); },
+  star: g => poly(g, 5, 1, 0.45, -Math.PI / 2),
+  hexagon: g => poly(g, 6, 1, 1, 0),
+  heart: g => { g.beginPath(); g.moveTo(0, 0.95); g.bezierCurveTo(-1.3, -0.1, -0.7, -1.1, 0, -0.45); g.bezierCurveTo(0.7, -1.1, 1.3, -0.1, 0, 0.95); g.fill(); },
+  spiral: g => { g.lineWidth = 0.11; g.strokeStyle = '#000'; g.beginPath(); for (let i = 0; i <= 200; i++) { const t = i / 200, a = t * Math.PI * 2 * 3, r = 0.08 + 0.92 * t; g.lineTo(Math.cos(a) * r, Math.sin(a) * r); } g.stroke(); },
+};
+function buildText(opts) {
+  const text = (opts && opts.text || 'Mahoraga').slice(0, 24);
+  const m = document.createElement('canvas').getContext('2d'); m.font = '700 100px Inter, sans-serif';
+  const aspect = clamp(m.measureText(text).width / 100 * 1.08, 1, 6);
+  // Letters need small petals and plenty of them, and as much width as the screen allows.
+  form.size = Math.min(0.26, 0.44 * W / Math.min(W, H) / aspect);
+  return raster(g => { g.font = '800 1px Inter, sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(text, 0, 0.02); }, N(Math.min(2400, 700 + 140 * text.length)), aspect, 0.5);
+}
+
 // Two wrinkled hemispheres either side of a fissure, sitting on a short stem.
 function buildBrain() {
   const out = [], n = settings.calm ? 620 : 1300;
@@ -618,51 +780,64 @@ function buildSolar() {
   });
   return out;
 }
+
+// ── The registry. group is only for the dev panel.
+const FORMS = {
+  cube: { build: buildCube, group: '3D' }, sphere: { build: buildSphere, group: '3D' }, torus: { build: buildTorus, group: '3D' },
+  pyramid: { build: buildPyramid, group: '3D' }, cylinder: { build: buildCylinder, group: '3D' }, cone: { build: buildCone, group: '3D' },
+  icosahedron: { build: buildIcosahedron, group: '3D' },
+  dna: { build: buildDNA, group: 'compound', label: 'DNA helix' }, lantern: { build: buildLantern, group: 'compound' },
+  torii: { build: buildTorii, group: 'compound', label: 'Torii gate', flat: true }, dharma: { build: buildDharma, group: 'compound', label: 'Dharma wheel', flat: true },
+  brain: { build: buildBrain, group: 'compound' }, solar: { build: buildSolar, group: 'compound', label: 'Solar system', size: 0.14, cam: { pitch: 0.55, yaw: 0.3 } },
+  ...Object.fromEntries(Object.entries(SHAPES_2D).map(([k, draw]) => [k, { build: () => raster(draw, N(k === 'spiral' ? 700 : 900), 1, k === 'spiral' ? 0.7 : 1), group: '2D' }])),
+  text: { build: buildText, group: '2D' },
+};
 function planetCenter(pl) { return [Math.cos(pl.ang) * pl.orbit, 0, Math.sin(pl.ang) * pl.orbit]; }
 function planetWorld(p) { const c = planetCenter(p.planet); return [c[0] + p.local[0], c[1] + p.local[1], c[2] + p.local[2]]; }
 
-function showForm(kind) {
-  if (!['cube', 'brain', 'solar'].includes(kind)) return;
+function showForm(kind, opts) {
+  const def = FORMS[kind]; if (!def) { console.warn('MahoragaTabs: unknown form', kind); return; }
   if (form.kind) dismissForm(true);
-  form.kind = kind; form.picked = null; form.settled = 0; form.petals = []; form.planets = [];
+  form.kind = kind; form.picked = null; form.settled = 0; form.petals = []; form.planets = []; form.faceList = null; form.flat = false; form.size = def.size || 0.19; form.breath = 0;
   cam.zoom = cam.zoomT = 1; cam.focus = [0, 0, 0]; cam.focusT = [0, 0, 0]; cam.vyaw = 0.25; cam.vpitch = 0;
-  if (kind === 'solar') { cam.pitch = -0.55; cam.yaw = 0.3; } else { cam.pitch = -0.35; cam.yaw = 0.6; }
-  const spec = kind === 'cube' ? buildCube() : kind === 'brain' ? buildBrain() : buildSolar();
+  cam.pitch = def.cam ? def.cam.pitch : 0.35; cam.yaw = def.cam ? def.cam.yaw : 0.6;
+  const spec = def.build(opts || {});
+  if (def.flat) form.flat = true;      // planar objects sway to face you instead of spinning edge-on
+  if (form.flat) { cam.pitch = 0.1; cam.yaw = 0.25; cam.vyaw = 0; }
   form.total = spec.length;
   if (active()) { settleNow(active()); releaseBorder(active()); }
   if (thinking) setThinking(false);
   layoutDeck();
   blow(W / 2, H * 0.24, W / 2, H * 0.44, 120);
-  spec.forEach((sp, i) => {
+  spec.forEach(sp => {
     const s = canopyPoint(), p = makePetal(s.x, s.y);
-    Object.assign(p, sp); if (sp.sprite !== undefined) p.sprite = sp.sprite;
+    const keep = p.sprite; Object.assign(p, sp); if (p.sprite === undefined || p.sprite === null) p.sprite = keep;   // builders may leave the tint alone
     if (sp.planet) p.world = planetWorld;
     p.form = form; p.follow = followForm; p.delay = rand(0, 0.9); p.alphaT = 1;
     startFlight(p, s, followForm(p), settings.duration * rand(0.8, 1.3)); p.wobA *= 0.7;
     form.petals.push(p); petals.push(p);
   });
   form.onSettle = () => { form.settled++; };
-  applyFaces();
-  updateFacesButton();
+  applyFaces(); updateFacesButton();
   emit('form.shown', { kind, petals: spec.length });
 }
 function dismissForm(quiet) {
   if (!form.kind) return;
   const kind = form.kind;
   for (const p of form.petals) { startFall(p, rand(0, 0.5)); p.fall *= 1.4; p.die = now + rand(1.4, 2.6); p.ds = 1; p.da = 1; }
-  form.petals = []; form.kind = null; form.picked = null; form.planets = [];
+  form.petals = []; form.kind = null; form.picked = null; form.planets = []; form.faceList = null; form.flat = false;
   labelEl.classList.remove('show'); layoutDeck(); updateFacesButton();
   if (!quiet) { if (active()) setTimeout(() => { if (!form.kind && active()) outline(active(), 0.8); }, 400); emit('form.dismissed', { kind }); }
 }
-// Cube faces: leaves (every petal), glass (edges + a see-through pane),
-// solid (edges + a gray pane that hides what is behind it).
+// Face modes for any flat-faced solid: leaves (every petal), glass (edges +
+// a see-through pane), solid (edges + a gray pane that hides what is behind).
 function setFaces(mode) {
   const modes = ['leaves', 'glass', 'solid'];
   form.faces = modes.includes(mode) ? mode : modes[(modes.indexOf(form.faces) + 1) % modes.length];
   applyFaces(); updateFacesButton(); emit('form.faces', { mode: form.faces });
 }
-function applyFaces() { if (form.kind !== 'cube') return; for (const p of form.petals) p.alphaT = (p.edge || form.faces === 'leaves') ? 1 : 0; }
-function updateFacesButton() { const b = document.getElementById('b-faces'); b.innerHTML = `<kbd>F</kbd>Faces: ${form.faces}`; b.style.display = form.kind === 'cube' ? '' : 'none'; }
+function applyFaces() { if (!form.faceList) return; for (const p of form.petals) p.alphaT = (p.edge || form.faces === 'leaves') ? 1 : 0; }
+function updateFacesButton() { const b = document.getElementById('b-faces'); if (!b) return; b.innerHTML = `<kbd>F</kbd>Faces: ${form.faces}`; b.style.display = form.faceList ? '' : 'none'; }
 
 // Pick a planet under a screen point: the camera swings to it and zooms.
 function pick(x, y) {
@@ -687,35 +862,42 @@ function unpick() {
   for (const p of form.petals) p.dim = 1;
   labelEl.classList.remove('show'); emit('unpicked', {});
 }
-function formRotate(dx, dy) { cam.yaw += dx * 0.006; cam.pitch = clamp(cam.pitch + dy * 0.006, -1.4, 1.4); cam.vyaw = 0; cam.vpitch = 0; }
+function formRotate(dx, dy) { cam.yaw += dx * 0.006; cam.pitch = clamp(cam.pitch - dy * 0.006, -1.4, 1.4); cam.vyaw = 0; cam.vpitch = 0; }
 function formZoom(f) { cam.zoomT = clamp(cam.zoomT * f, 0.35, 4); emit('form.zoom', { zoom: cam.zoomT }); }
 
 function formStep(dt) {
   if (!form.kind) return;
-  // Inertia after a hand lets go, and a slow idle turn when nothing holds it.
-  cam.yaw += cam.vyaw * dt; cam.pitch = clamp(cam.pitch + cam.vpitch * dt, -1.4, 1.4);
   const holding = [...hands.values()].some(h => h.grab);
-  if (!holding) { cam.vyaw += (0.12 - cam.vyaw) * (1 - Math.pow(0.5, dt)); cam.vpitch *= Math.pow(0.2, dt); }
+  cam.yaw += cam.vyaw * dt; cam.pitch = clamp(cam.pitch + cam.vpitch * dt, -1.4, 1.4);
+  if (!holding) {
+    if (form.flat) {
+      // A flat shape sways to face you rather than turning edge-on.
+      cam.vyaw *= Math.pow(0.15, dt); cam.vpitch *= Math.pow(0.15, dt);
+      cam.yaw += (0.35 * Math.sin(now * 0.5) - cam.yaw) * (1 - Math.pow(0.4, dt));
+      cam.pitch += (0.1 + 0.08 * Math.sin(now * 0.7) - cam.pitch) * (1 - Math.pow(0.4, dt));
+    } else { cam.vyaw += (0.12 - cam.vyaw) * (1 - Math.pow(0.5, dt)); cam.vpitch *= Math.pow(0.2, dt); }
+  }
   cam.zoom += (cam.zoomT - cam.zoom) * (1 - Math.pow(0.05, dt));
   if (form.kind === 'solar') {
     for (const pl of form.planets) pl.ang += pl.speed * 0.25 * dt;
     if (form.picked && !form.picked.sun) cam.focusT = planetCenter(form.picked);
   }
-  if (form.kind === 'brain') { const b = 1 + 0.02 * Math.sin(now * 2.1); form.breath = b; }
+  if (form.kind === 'brain') form.breath = 1 + 0.02 * Math.sin(now * 2.1);
   for (let i = 0; i < 3; i++) cam.focus[i] += (cam.focusT[i] - cam.focus[i]) * (1 - Math.pow(0.03, dt));
-  if (form.picked) { const c = form.picked.sun ? [0, 0, 0] : planetCenter(form.picked), q = project(c[0], c[1], c[2]); labelEl.style.left = q.x + 'px'; labelEl.style.top = (q.y + form.picked.r * formSize() * q.f + 14 || q.y + 40) + 'px'; }
+  if (form.picked) { const c = form.picked.sun ? [0, 0, 0] : planetCenter(form.picked), q = project(c[0], c[1], c[2]); labelEl.style.left = q.x + 'px'; labelEl.style.top = (q.y + form.picked.r * formSize() * q.f + 14) + 'px'; }
 }
 function drawForm() {
   if (!form.kind && !form.petals.length) return;
   const S = formSize();
-  if (form.kind === 'cube' && form.faces !== 'leaves') {
+  if (form.faceList && form.faces !== 'leaves') {
     // Painter's order: each face's pane, then the petals riding on it.
-    const faces = FACES.map((fc, fi) => {
-      const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => { const w = facePoint(fc, u, v); return project(w[0], w[1], w[2]); });
-      const [nx, ny, nz] = rot3(fc.n[0], fc.n[1], fc.n[2]);
-      return { fi, corners, depth: corners.reduce((a, c) => a + c.z, 0) / 4, light: 0.72 + 0.28 * clamp(-nz * 0.6 + ny * 0.5 + 0.3, 0, 1) };
+    const faces = form.faceList.map((corners, fi) => {
+      const pc = corners.map(w => project(w[0], w[1], w[2]));
+      const n = norm3(cross(sub3(corners[1], corners[0]), sub3(corners[2], corners[0])));
+      const [nx, ny, nz] = rot3(n[0], n[1], n[2]);
+      return { fi, corners: pc, depth: pc.reduce((a, c) => a + c.z, 0) / pc.length, light: 0.72 + 0.28 * clamp(Math.abs(-nz * 0.6 + ny * 0.5) + 0.2, 0, 1) };
     }).sort((a, b) => b.depth - a.depth);
-    const byFace = FACES.map(() => []);
+    const byFace = form.faceList.map(() => []);
     for (const p of form.petals) if (p.mode === 'form' && p.face !== undefined) byFace[p.face].push(p);
     for (const f of faces) {
       ctx.beginPath(); f.corners.forEach((c, i) => i ? ctx.lineTo(c.x, c.y) : ctx.moveTo(c.x, c.y)); ctx.closePath();
@@ -727,14 +909,12 @@ function drawForm() {
     return;
   }
   if (form.kind === 'solar') {
-    // Orbit rings, drawn as projected circles behind everything.
     ctx.lineWidth = 1;
     for (const pl of form.planets) {
       ctx.beginPath();
       for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2, q = project(Math.cos(a) * pl.orbit, 0, Math.sin(a) * pl.orbit); i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); }
       ctx.strokeStyle = `rgba(110,60,105,${form.picked && form.picked !== pl ? 0.1 : 0.32})`; ctx.stroke();
     }
-    // A warm glow behind the sun.
     const q = project(0, 0, 0), r = 0.36 * S * q.f * 1.9;
     const g = ctx.createRadialGradient(q.x, q.y, r * 0.2, q.x, q.y, r); g.addColorStop(0, 'rgba(255,214,150,.45)'); g.addColorStop(1, 'rgba(255,214,150,0)');
     ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.fill();
@@ -787,7 +967,7 @@ function grabEnd(id, x, y, vx, vy) {
     // A pinch that did not travel is a pick; a throw keeps the form spinning.
     const tap = h.grab.moved < 8 && Math.hypot(vx, vy) < 300; h.grab = null;
     if (tap) { if (!pick(x, y) && form.picked) unpick(); }
-    else { cam.vyaw = clamp(vx * 0.004, -4, 4); cam.vpitch = clamp(vy * 0.004, -4, 4); }
+    else { cam.vyaw = clamp(vx * 0.004, -4, 4); cam.vpitch = clamp(-vy * 0.004, -4, 4); }
     return;
   }
   h.grab = null; const tab = active(); if (tab) tab.el.classList.remove('direct');
@@ -835,7 +1015,7 @@ const commands = {
   'scale': d => d && (form.kind ? formZoom(d.factor) : scaleTo(view.scale * d.factor)),
   'scale.to': d => d && (form.kind ? (cam.zoomT = clamp(d.scale, 0.35, 4)) : scaleTo(d.scale)),
   'duplicate': () => duplicate(),
-  'form': d => d && showForm(d.kind),
+  'form': d => d && showForm(d.kind, d),
   'form.dismiss': () => dismissForm(),
   'form.faces': d => setFaces(d && d.mode),
   'form.rotate': d => d && formRotate(d.dx || 0, d.dy || 0),
@@ -858,6 +1038,7 @@ window.MahoragaTabs = {
   send(name, data) { const c = commands[name]; if (!c) { console.warn('MahoragaTabs: unknown intent', name); return false; } c(data); return true; },
   on(name, fn) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn); return () => listeners.get(name).delete(fn); },
   intents: Object.keys(commands),
+  forms: Object.keys(FORMS),
   config,
   get state() {
     const planets = form.kind === 'solar' ? form.planets.map(pl => { const c = planetCenter(pl), q = project(c[0], c[1], c[2]); return { name: pl.name, x: q.x, y: q.y }; }) : [];
@@ -979,7 +1160,7 @@ function drawPetal(p) {
   if (p.alpha <= 0.01) return;
   if (p.mode === 'gather' && now - p.born < p.delay) return;
   if (p.mode === 'fall' && now < p.fallAt) return;
-  const s = sprites[p.sprite], sc = p.size * SPRITE * (p.ds || 1), fx = 0.3 + 0.7 * Math.abs(Math.cos(p.flip));
+  const s = sprites[p.sprite] || sprites[0], sc = p.size * SPRITE * (p.ds || 1), fx = 0.3 + 0.7 * Math.abs(Math.cos(p.flip));
   ctx.save(); ctx.globalAlpha = p.alpha * (p.da === undefined ? 1 : p.da); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.scale(fx, 1);
   ctx.drawImage(s, -sc / 2, -sc / 2, sc, sc); ctx.restore();
 }
@@ -1008,15 +1189,25 @@ function doClick() {
   MahoragaTabs.send('click', { x: b.left + b.width / 2, y: b.top + b.height / 2 });
   const step = tab.el.querySelector('.step'), was = step.textContent; step.textContent = was + ' ✓'; setTimeout(() => step.textContent = was, 900);
 }
+for (const [kind, def] of Object.entries(FORMS)) {
+  if (kind === 'text') continue;
+  const b = document.createElement('button'); b.dataset.cmd = 'form.' + kind; b.textContent = def.label || kind[0].toUpperCase() + kind.slice(1);
+  document.getElementById('grp-' + def.group).appendChild(b);
+}
 document.querySelectorAll('.hud button').forEach(b => b.onclick = () => {
   const c = b.dataset.cmd;
   if (c === 'click') doClick();
   else if (c === 'calm') { settings.calm = !settings.calm; setPressed('b-calm', settings.calm); }
-  else if (c.startsWith('form.') && ['cube', 'brain', 'solar'].includes(c.slice(5))) MahoragaTabs.send('form', { kind: c.slice(5) });
+  else if (c === 'form.text') MahoragaTabs.send('form', { kind: 'text', text: document.getElementById('text-in').value });
+  else if (c.startsWith('form.') && FORMS[c.slice(5)]) MahoragaTabs.send('form', { kind: c.slice(5) });
   else MahoragaTabs.send(c);
 });
+const devEl = document.getElementById('dev');
+document.getElementById('devtoggle').onclick = () => { devEl.hidden = !devEl.hidden; };
 setPressed('b-calm', settings.calm);
 window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT') { if (e.key === 'Enter') document.querySelector('[data-cmd="form.text"]').click(); return; }
+  if (e.key === '`') { devEl.hidden = !devEl.hidden; return; }
   if (e.key === ' ') { e.preventDefault(); MahoragaTabs.send('summon'); }
   else if (e.key === 'ArrowRight') MahoragaTabs.send('next');
   else if (e.key === 'ArrowLeft') MahoragaTabs.send('prev');

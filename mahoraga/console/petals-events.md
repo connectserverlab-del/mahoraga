@@ -25,9 +25,9 @@ Attach a recognised, completed gesture to one of these.
 | `scale.to` | `{scale}` | Set the size absolutely (1 = default) |
 | `move` | `{dx, dy}` | Nudge the whole deck |
 | `duplicate` | | The active card tears in two; the copy comes to the front |
-| `form` | `{kind}` | Form `cube`, `brain`, or `solar` out of petals. The deck steps aside |
+| `form` | `{kind, text?}` | Form a shape out of petals; the deck steps aside. `MahoragaTabs.forms` lists every kind. 3D: `cube`, `sphere`, `torus`, `pyramid`, `cylinder`, `cone`, `icosahedron`. Compound: `dna`, `lantern`, `torii`, `dharma`, `brain`, `solar`. 2D: `circle`, `ring`, `square`, `triangle`, `star`, `hexagon`, `heart`, `spiral`, and `text` with `{text}` |
 | `form.dismiss` | | The form falls back to the pool and the deck returns |
-| `form.faces` | `{mode}` (optional, cycles if omitted) | Cube faces: `leaves` (every petal), `glass` (edges + see-through pane), `solid` (edges + gray pane that hides what is behind it) |
+| `form.faces` | `{mode}` (optional, cycles if omitted) | Faces of any flat-faced solid (cube, pyramid, icosahedron): `leaves` (every petal), `glass` (edges + see-through pane), `solid` (edges + gray pane that hides what is behind it) |
 | `form.rotate` | `{dx, dy}` | Turn the form by a screen-space delta |
 | `pick` | `{x, y}` | Solar only: pick the planet (or sun) under a point. The camera swings to it, zooms, and labels it. Emits `pick.missed` on empty space |
 | `unpick` | | Back out to the whole system |
@@ -87,9 +87,18 @@ face mode, picked body, zoom, and for the solar system the current screen
 position of every planet (handy for aiming a `pick`). `MahoragaTabs.intents` lists every
 intent name.
 
+## Adding a shape
+
+A form is one builder returning surface points `{p3: [x, y, z], sprite?,
+sizeScale?, dim?, edge?}` in a roughly unit-sized space with +y up, registered
+in `FORMS`. Helpers exist for spheres, tubes along a path, surfaces of
+revolution, discs, box surfaces, flat-faced solids (which also get the face
+modes), and `raster(draw)` which turns anything drawn on a canvas into petals.
+
 ## Testing without a camera
 
-The page drives the same surface from the mouse: move is `hand`, drag is
+The dev panel (backtick, or the pill at the bottom) holds a button for every
+intent and every shape, plus a text field. The page drives the same surface from the mouse: move is `hand`, drag is
 `grab`, shift+drag is `scrub`, the wheel is `scale`. Keys: Space summon,
 arrows riffle, B back, D duplicate, Esc close, C click, T thinking, M calm,
 + and - scale, 1/2/3 form the cube, brain, solar system, F cycles cube faces,
