@@ -38,6 +38,7 @@
     backdrop-filter: blur(6px) saturate(120%); -webkit-backdrop-filter: blur(6px) saturate(120%);
     transition: transform .7s cubic-bezier(.22,.9,.3,1), opacity .45s ease, filter .7s ease; }
   .viewer.direct { transition: none; }          /* while a hand holds it: no lag */
+  .viewer.aside { opacity: .1 !important; pointer-events: none !important; filter: blur(2px) !important; }  /* a form is up */
   .viewer.active { pointer-events: auto; }
   .viewer.sinking { opacity: 0 !important; transition: transform 1.1s ease-in, opacity .9s ease-in; }
   .viewer .chrome { display: flex; align-items: center; gap: 10px; height: 44px; padding: 0 14px;
@@ -84,6 +85,12 @@
   .log b { color: #4a2035; font-weight: 600; }
   .log .t { opacity: .55; }
   .log .hint { border-top: 1px solid rgba(0,0,0,.08); margin-top: 6px; padding-top: 6px; opacity: .75; }
+  .label { position: fixed; z-index: 250; pointer-events: none; transform: translate(-50%, 0); opacity: 0; transition: opacity .3s ease;
+    color: #fff7fa; text-align: center; text-shadow: 0 2px 12px rgba(60,20,50,.6), 0 0 2px rgba(0,0,0,.4); }
+  .label.show { opacity: 1; }
+  .label .n { font-size: 22px; font-weight: 700; letter-spacing: -.01em; }
+  .label .f { font-size: 12px; opacity: .85; margin-top: 2px; max-width: 260px; }
+  .label .h { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; opacity: .6; margin-top: 6px; }
   @media (max-width: 900px) { .stat, .log { display: none; } }
 </style>
 </head>
@@ -105,11 +112,19 @@
   <button data-cmd="prev"><kbd>←</kbd>Prev</button>
   <button data-cmd="next"><kbd>→</kbd>Next</button>
   <button data-cmd="back"><kbd>B</kbd>Send back</button>
+  <button data-cmd="duplicate"><kbd>D</kbd>Duplicate</button>
   <button data-cmd="close"><kbd>Esc</kbd>Close</button>
   <button data-cmd="click"><kbd>C</kbd>Click</button>
   <button data-cmd="think" id="b-think" aria-pressed="false"><kbd>T</kbd>Thinking</button>
   <button data-cmd="calm" id="b-calm" aria-pressed="false"><kbd>M</kbd>Calm</button>
+  <span style="width:100%"></span>
+  <button data-cmd="form.cube"><kbd>1</kbd>Cube</button>
+  <button data-cmd="form.brain"><kbd>2</kbd>Brain</button>
+  <button data-cmd="form.solar"><kbd>3</kbd>Solar system</button>
+  <button data-cmd="form.faces" id="b-faces"><kbd>F</kbd>Faces: leaves</button>
+  <button data-cmd="form.dismiss"><kbd>0</kbd>Dismiss form</button>
 </div>
+<div class="label" id="label"></div>
 <div class="panel stat" id="stat"></div>
 
 <script>
@@ -130,6 +145,13 @@
 //     MahoragaTabs.send('scale', {factor})   multiply the deck's size (clamped)
 //     MahoragaTabs.send('scale.to', {scale}) set it absolutely
 //     MahoragaTabs.send('move', {dx, dy})    nudge the deck
+//     MahoragaTabs.send('duplicate')         tear a copy of the active tab off in front
+//     MahoragaTabs.send('form', {kind})      form 'cube' | 'brain' | 'solar' out of petals
+//     MahoragaTabs.send('form.dismiss')      the form falls back to the pool
+//     MahoragaTabs.send('form.faces', {mode})cube faces: 'leaves' | 'glass' | 'solid' (omit to cycle)
+//     MahoragaTabs.send('pick', {x, y})      solar: pick the planet under a point (zooms to it)
+//     MahoragaTabs.send('unpick')            back out to the whole system
+//     While a form is up: grab rotates it, scale/stretch expand it in and out.
 //
 //   Continuous — for gestures with a clutch (pinch) that track the hand:
 //     'hand'        {id, x, y, pinch}   where a hand is; draws a petal cursor
@@ -180,7 +202,13 @@ const flightEase = t => smoothstep(0, 0.14, t) * (1 - Math.pow(1 - t, 2.6));
 function lerpAngle(a, b, t) { let d = (b - a + Math.PI * 3) % (Math.PI * 2) - Math.PI; return a + d * t; }
 
 // ── Petal sprites
-const TINTS = [['#fbe4ec', '#f2b7cb'], ['#f9d5e0', '#eea6bf'], ['#fdeff4', '#f4c3d3'], ['#f6c6d6', '#e79ab6']];
+const TINTS = [['#fbe4ec', '#f2b7cb'], ['#f9d5e0', '#eea6bf'], ['#fdeff4', '#f4c3d3'], ['#f6c6d6', '#e79ab6'],
+  ['#e9a8bf', '#b9607f'],   // 4 deep mauve: brain grooves
+  ['#fff0c2', '#f0b85a'],   // 5 gold: the sun
+  ['#cfe0f5', '#7aa6da'],   // 6 water blue: Earth, Uranus, Neptune
+  ['#f5c0b0', '#d4735c'],   // 7 rust: Mars, Mercury
+  ['#f7dcc4', '#d9a06e'],   // 8 tan: Venus, Jupiter, Saturn
+];
 const SPRITE = 28;
 const sprites = TINTS.map(([light, deep]) => {
   const c = document.createElement('canvas'); c.width = c.height = SPRITE * 2;
@@ -235,7 +263,7 @@ function perimeterPoint(f, u) {
 const petals = [], ripples = [];
 function makePetal(x, y) {
   return {
-    x, y, px: x, py: y, mode: 'ambient', sprite: (Math.random() * sprites.length) | 0,
+    x, y, px: x, py: y, mode: 'ambient', sprite: (Math.random() * 4) | 0,   // sakura tints only; dyes are for forms
     size: rand(0.55, 1.05), rot: rand(0, Math.PI * 2), spin: rand(-1.6, 1.6),
     flip: rand(0, Math.PI * 2), alpha: 1, born: now, tab: null,
     phase: rand(0, Math.PI * 2), freq: rand(3.2, 5.6), amp: rand(22, 58), fall: rand(34, 62), vx: 0, vy: 0,
@@ -262,7 +290,7 @@ function startFlight(p, s, t, dur) {
   p.ox = 0; p.oy = 0; p.delay = p.delay || 0;
 }
 function startFall(p, delay) {
-  p.mode = 'fall'; p.fallAt = now + delay; p.baseRot = p.rot; p.rippled = false; p.tab = null;
+  p.mode = 'fall'; p.fallAt = now + delay; p.baseRot = p.rot; p.rippled = false; p.tab = null; p.follow = null; p.form = null;
   p.vx = rand(-20, 20); p.vy = rand(-30, 5);
   if (Math.random() < 0.2) p.vy = rand(-90, -40);
 }
@@ -309,8 +337,8 @@ function pageHtml(site) {
       <div class="line" style="width:88%"></div><div class="line" style="width:40%"></div></div>
     <div style="margin-top:16px"><span class="btn target">Copy token</span></div>`;
 }
-function createTab() {
-  const site = SITES[nextSite++ % SITES.length];
+function createTab(siteOverride) {
+  const site = siteOverride || SITES[nextSite % SITES.length]; nextSite++;
   const el = document.createElement('div'); el.className = 'viewer'; el.style.setProperty('--accent', site.accent);
   el.innerHTML = `
     <div class="chrome"><div class="tab"><span class="fav"></span> ${site.name}</div><div class="url">${site.url}</div><div class="step">${site.step}</div></div>
@@ -355,6 +383,7 @@ function layoutDeck(immediate) {
     t.el.style.zIndex = p.z; t.el.style.filter = `brightness(${p.bright})`;
     if (t.state !== 'summoning' && t.state !== 'sinking') t.el.style.opacity = i > DEPTH_SHOWN ? 0 : p.opacity;
     t.el.classList.toggle('active', i === 0);
+    t.el.classList.toggle('aside', !!form.kind);
   });
 }
 // Border petals live on the active frame in perimeter coordinates, so the
@@ -374,7 +403,7 @@ function summon() {
   for (let i = 0; i < n; i++) {
     const s = canopyPoint(), p = makePetal(s.x, s.y), onEdge = i < n * edgeShare;
     let t;
-    if (onEdge) { p.u = (i / (n * edgeShare) + 0.13) % 1; p.jx = rand(-9, 9); p.jy = rand(-9, 9); t = anchor(p); p.delay = rand(0, 0.32); }
+    if (onEdge) { p.u = (i / (n * edgeShare) + 0.13) % 1; p.jx = rand(-9, 9); p.jy = rand(-9, 9); p.follow = anchor; t = anchor(p); p.delay = rand(0, 0.32); }
     else { t = { x: rand(f.x + 26, f.x + f.w - 26), y: rand(f.y + 26, f.y + f.h - 26) }; p.delay = rand(0.25, 0.7); tab.settledTotal++; }
     startFlight(p, s, t, settings.duration * rand(0.8, 1.25));
     p.edge = onEdge; p.tab = tab; p.keep = onEdge && Math.random() < 0.72; petals.push(p);
@@ -386,7 +415,7 @@ function outline(tab, share) {
   const f = frontRect(), n = Math.round((settings.calm ? 60 : 150) * (share || 1));
   for (let i = 0; i < n; i++) {
     const s = canopyPoint(), p = makePetal(s.x, s.y);
-    p.u = (i / n + 0.13) % 1; p.jx = rand(-9, 9); p.jy = rand(-9, 9);
+    p.u = (i / n + 0.13) % 1; p.jx = rand(-9, 9); p.jy = rand(-9, 9); p.follow = anchor;
     p.delay = rand(0.05, 0.5); startFlight(p, s, anchor(p), settings.duration * rand(0.6, 0.9));
     p.edge = true; p.tab = tab; p.keep = Math.random() < 0.72; petals.push(p);
   }
@@ -458,6 +487,263 @@ function setThinking(on) {
   } else for (const p of petals) if (p.mode === 'orbit') startFall(p, rand(0, 0.3));
 }
 
+
+// ── Duplicate: the active card tears in two ─────────────────────────────────
+// The copy slides out in front while petals shed from the original's face
+// form the copy's outline; the original settles one card back.
+function duplicate() {
+  const cur = active(); if (!cur || form.kind) return;
+  settleNow(cur); releaseBorder(cur);
+  const from = frontRect();
+  const tab = createTab(cur.site); tabs.unshift(tab); layoutDeck();
+  tab.tear = { at: now, dur: 0.9 };
+  const n = settings.calm ? 90 : 220, edgeShare = 0.6;
+  blow(from.x + from.w / 2, from.y + from.h / 2, from.x + from.w, from.y + from.h / 2, 60);
+  for (let i = 0; i < n; i++) {
+    const s = { x: rand(from.x + 20, from.x + from.w - 20), y: rand(from.y + 20, from.y + from.h - 20) };
+    const p = makePetal(s.x, s.y), onEdge = i < n * edgeShare;
+    let t;
+    if (onEdge) { p.u = (i / (n * edgeShare) + 0.37) % 1; p.jx = rand(-8, 8); p.jy = rand(-8, 8); p.follow = anchor; t = anchor(p); p.delay = rand(0, 0.25); }
+    else { t = { x: rand(from.x + 26, from.x + from.w - 26), y: rand(from.y + 26, from.y + from.h - 26) }; p.delay = rand(0.1, 0.4); tab.settledTotal++; }
+    startFlight(p, s, t, rand(0.5, 0.85)); p.wobA *= 0.6;
+    p.edge = onEdge; p.tab = tab; p.keep = onEdge && Math.random() < 0.72; petals.push(p);
+  }
+  emit('tab.duplicated', { tab: tab.id, from: cur.id, site: tab.site.name }); emit('deck.changed', deckInfo());
+}
+
+// ── Forms: 3D objects made of petals ────────────────────────────────────────
+// Each petal on a form has a point on the object's surface. The camera
+// rotates and projects those points every frame, so forming, rotating and
+// zooming all reuse the same "follow the target" flight and settle.
+const form = { kind: null, faces: 'leaves', petals: [], picked: null, planets: [], onSettle: null, settled: 0, total: 0 };
+const cam = { yaw: 0.6, pitch: -0.35, vyaw: 0, vpitch: 0, zoom: 1, zoomT: 1, focus: [0, 0, 0], focusT: [0, 0, 0], D: 6.5 };
+const labelEl = document.getElementById('label');
+
+function formSize() { return Math.min(W, H) * (form.kind === 'solar' ? 0.14 : 0.19) * cam.zoom; }
+function rot3(x, y, z) {
+  const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw), cx = Math.cos(cam.pitch), sx = Math.sin(cam.pitch);
+  const x1 = x * cy + z * sy, z1 = -x * sy + z * cy;
+  return [x1, y * cx - z1 * sx, y * sx + z1 * cx];
+}
+function project(x, y, z) {
+  const [rx, ry, rz] = rot3(x - cam.focus[0], y - cam.focus[1], z - cam.focus[2]);
+  const f = cam.D / (cam.D + rz), S = formSize();
+  return { x: W / 2 + view.x + rx * f * S, y: H * 0.44 + view.y + ry * f * S, f, z: rz };
+}
+// Per-petal follow: projects its surface point and records depth cues.
+function followForm(p) {
+  let w = p.world ? p.world(p) : p.p3;
+  if (form.breath && form.kind === 'brain') w = [w[0] * form.breath, w[1] * form.breath, w[2] * form.breath];
+  const q = project(w[0], w[1], w[2]);
+  p.ds = q.f * (p.sizeScale || 1);                       // nearer petals draw bigger
+  p.da = clamp(0.4 + 0.6 * (1 - (q.z + 1.6) / 3.2), 0.35, 1) * (p.dim || 1);   // farther petals dim
+  p.depth = q.z;
+  return q;
+}
+function sphereSample(i, n) {
+  const k = (i + 0.5) / n, phi = Math.acos(1 - 2 * k), th = Math.PI * (1 + Math.sqrt(5)) * i;
+  return [Math.cos(th) * Math.sin(phi), Math.cos(phi), Math.sin(th) * Math.sin(phi)];
+}
+
+const FACES = [                 // normal, tangent a, tangent b
+  { n: [1, 0, 0], a: [0, 1, 0], b: [0, 0, 1] }, { n: [-1, 0, 0], a: [0, 1, 0], b: [0, 0, 1] },
+  { n: [0, 1, 0], a: [1, 0, 0], b: [0, 0, 1] }, { n: [0, -1, 0], a: [1, 0, 0], b: [0, 0, 1] },
+  { n: [0, 0, 1], a: [1, 0, 0], b: [0, 1, 0] }, { n: [0, 0, -1], a: [1, 0, 0], b: [0, 1, 0] },
+];
+function facePoint(fc, u, v) { return [fc.n[0] + fc.a[0] * u + fc.b[0] * v, fc.n[1] + fc.a[1] * u + fc.b[1] * v, fc.n[2] + fc.a[2] * u + fc.b[2] * v]; }
+
+function buildCube() {
+  const out = [], per = settings.calm ? 70 : 150;
+  FACES.forEach((fc, fi) => {
+    for (let i = 0; i < per; i++) {
+      const onEdge = i < per * 0.3; let u, v;
+      if (onEdge) { const t = rand(-1, 1); if (i % 2) { u = t; v = Math.random() < 0.5 ? -1 : 1; } else { v = t; u = Math.random() < 0.5 ? -1 : 1; } }
+      else { u = rand(-0.92, 0.92); v = rand(-0.92, 0.92); }
+      out.push({ p3: facePoint(fc, u, v), face: fi, edge: onEdge });
+    }
+  });
+  return out;
+}
+// Two wrinkled hemispheres either side of a fissure, sitting on a short stem.
+function buildBrain() {
+  const out = [], n = settings.calm ? 620 : 1300;
+  for (let i = 0; i < n; i++) {
+    const q = sphereSample(i, n), side = i % 2 ? 1 : -1;
+    // Each hemisphere is a dome: only the outer half of a sphere, so the flat
+    // side facing the other dome is empty and the fissure is a real cleft.
+    const x = Math.abs(q[0]), y = q[1], z = q[2];
+    const th = Math.atan2(z, x), ph = Math.acos(clamp(y, -1, 1));
+    // Big folds plus fine detail. Negative is a sulcus, positive a gyrus.
+    const g = Math.sin(3.6 * th + 1.4 * ph) * Math.sin(2.8 * ph + 0.7 * th) * 0.7 + Math.sin(9 * th + 2.5 * ph) * Math.cos(6 * ph) * 0.3;
+    const groove = g < -0.18, rim = x < 0.14;
+    const bulge = groove ? 0.9 : 1 + 0.07 * clamp(g, 0, 1);
+    const front = z > 0 ? 1.08 : 0.96;                       // frontal lobe fuller than the back
+    const px = side * (0.07 + x * 0.9 * bulge), py = (y * 0.7 + 0.03) * bulge, pz = z * 1.02 * bulge * front;
+    if (y < -0.55 && z < -0.1) continue;                     // underside at the back is where the cerebellum sits
+    out.push({ p3: [px, py, pz],
+      dim: rim ? 0.45 : groove ? 0.5 : 0.9 + 0.1 * clamp(g, 0, 1),
+      sizeScale: rim ? 0.65 : groove ? 0.6 : 1.05 + 0.25 * clamp(g, 0, 1),
+      sprite: (rim || groove) ? 4 : (i % 3 ? 2 : 3) });
+  }
+  // Cerebellum: two small, finely lined lobes tucked under the back.
+  const cn = settings.calm ? 90 : 200;
+  for (let i = 0; i < cn; i++) { const [x, y, z] = sphereSample(i, cn), side = i % 2 ? 1 : -1; const lines = Math.sin(16 * Math.acos(clamp(y, -1, 1)));
+    out.push({ p3: [side * (0.2 + Math.abs(x) * 0.3), -0.5 + y * 0.26, -0.7 + z * 0.34], dim: lines < 0 ? 0.5 : 0.85, sizeScale: 0.62, sprite: lines < 0 ? 4 : 3 }); }
+  // Stem.
+  for (let i = 0; i < (settings.calm ? 30 : 70); i++) { const a = rand(0, Math.PI * 2), r = 0.15 * rand(0.7, 1); out.push({ p3: [Math.cos(a) * r, -0.66 - rand(0, 0.42), Math.sin(a) * r - 0.2], dim: 0.65, sizeScale: 0.75, sprite: 4 }); }
+  return out;
+}
+const PLANETS = [
+  { name: 'Mercury', r: 0.045, orbit: 0.62, speed: 1.6, sprite: 7, fact: 'Closest to the sun. A year lasts 88 days.' },
+  { name: 'Venus', r: 0.07, orbit: 0.8, speed: 1.2, sprite: 8, fact: 'Hottest planet, wrapped in clouds of acid.' },
+  { name: 'Earth', r: 0.075, orbit: 1.0, speed: 1.0, sprite: 6, fact: 'Home. One moon, mostly water.' },
+  { name: 'Mars', r: 0.055, orbit: 1.2, speed: 0.8, sprite: 7, fact: 'The red one. Two small moons, tallest volcano.' },
+  { name: 'Jupiter', r: 0.17, orbit: 1.6, speed: 0.45, sprite: 8, fact: 'Largest. A storm bigger than Earth.' },
+  { name: 'Saturn', r: 0.145, orbit: 2.0, speed: 0.34, sprite: 8, fact: 'Rings of ice and rock, thin as paper.', ring: true },
+  { name: 'Uranus', r: 0.1, orbit: 2.36, speed: 0.24, sprite: 6, fact: 'Spins on its side.' },
+  { name: 'Neptune', r: 0.1, orbit: 2.7, speed: 0.19, sprite: 6, fact: 'Farthest. Winds faster than sound.' },
+];
+function buildSolar() {
+  const out = [], k = settings.calm ? 0.45 : 1;
+  form.planets = PLANETS.map((pl, i) => ({ ...pl, ang: rand(0, Math.PI * 2), i }));
+  const sunN = Math.round(300 * k), SUN = 0.36;
+  for (let i = 0; i < sunN; i++) { const q = sphereSample(i, sunN); out.push({ p3: [q[0] * SUN, q[1] * SUN, q[2] * SUN], sprite: i % 4 ? 5 : 8, sizeScale: 1.15, body: 'sun', dim: 1 }); }
+  form.planets.forEach(pl => {
+    const n = Math.round(clamp(pl.r * 900, 26, 130) * k);
+    for (let i = 0; i < n; i++) {
+      const q = sphereSample(i, n), local = [q[0] * pl.r, q[1] * pl.r, q[2] * pl.r];
+      out.push({ local, planet: pl, sizeScale: 0.6 + pl.r * 2.2, body: pl.name, sprite: i % 5 ? pl.sprite : 2 });
+    }
+    if (pl.ring) for (let i = 0; i < Math.round(60 * k); i++) { const a = rand(0, Math.PI * 2), r = pl.r * rand(1.5, 2.2); out.push({ local: [Math.cos(a) * r, rand(-0.004, 0.004), Math.sin(a) * r], planet: pl, sizeScale: 0.45, body: pl.name, sprite: 8 }); }
+  });
+  return out;
+}
+function planetCenter(pl) { return [Math.cos(pl.ang) * pl.orbit, 0, Math.sin(pl.ang) * pl.orbit]; }
+function planetWorld(p) { const c = planetCenter(p.planet); return [c[0] + p.local[0], c[1] + p.local[1], c[2] + p.local[2]]; }
+
+function showForm(kind) {
+  if (!['cube', 'brain', 'solar'].includes(kind)) return;
+  if (form.kind) dismissForm(true);
+  form.kind = kind; form.picked = null; form.settled = 0; form.petals = []; form.planets = [];
+  cam.zoom = cam.zoomT = 1; cam.focus = [0, 0, 0]; cam.focusT = [0, 0, 0]; cam.vyaw = 0.25; cam.vpitch = 0;
+  if (kind === 'solar') { cam.pitch = -0.55; cam.yaw = 0.3; } else { cam.pitch = -0.35; cam.yaw = 0.6; }
+  const spec = kind === 'cube' ? buildCube() : kind === 'brain' ? buildBrain() : buildSolar();
+  form.total = spec.length;
+  if (active()) { settleNow(active()); releaseBorder(active()); }
+  if (thinking) setThinking(false);
+  layoutDeck();
+  blow(W / 2, H * 0.24, W / 2, H * 0.44, 120);
+  spec.forEach((sp, i) => {
+    const s = canopyPoint(), p = makePetal(s.x, s.y);
+    Object.assign(p, sp); if (sp.sprite !== undefined) p.sprite = sp.sprite;
+    if (sp.planet) p.world = planetWorld;
+    p.form = form; p.follow = followForm; p.delay = rand(0, 0.9); p.alphaT = 1;
+    startFlight(p, s, followForm(p), settings.duration * rand(0.8, 1.3)); p.wobA *= 0.7;
+    form.petals.push(p); petals.push(p);
+  });
+  form.onSettle = () => { form.settled++; };
+  applyFaces();
+  updateFacesButton();
+  emit('form.shown', { kind, petals: spec.length });
+}
+function dismissForm(quiet) {
+  if (!form.kind) return;
+  const kind = form.kind;
+  for (const p of form.petals) { startFall(p, rand(0, 0.5)); p.fall *= 1.4; p.die = now + rand(1.4, 2.6); p.ds = 1; p.da = 1; }
+  form.petals = []; form.kind = null; form.picked = null; form.planets = [];
+  labelEl.classList.remove('show'); layoutDeck(); updateFacesButton();
+  if (!quiet) { if (active()) setTimeout(() => { if (!form.kind && active()) outline(active(), 0.8); }, 400); emit('form.dismissed', { kind }); }
+}
+// Cube faces: leaves (every petal), glass (edges + a see-through pane),
+// solid (edges + a gray pane that hides what is behind it).
+function setFaces(mode) {
+  const modes = ['leaves', 'glass', 'solid'];
+  form.faces = modes.includes(mode) ? mode : modes[(modes.indexOf(form.faces) + 1) % modes.length];
+  applyFaces(); updateFacesButton(); emit('form.faces', { mode: form.faces });
+}
+function applyFaces() { if (form.kind !== 'cube') return; for (const p of form.petals) p.alphaT = (p.edge || form.faces === 'leaves') ? 1 : 0; }
+function updateFacesButton() { const b = document.getElementById('b-faces'); b.innerHTML = `<kbd>F</kbd>Faces: ${form.faces}`; b.style.display = form.kind === 'cube' ? '' : 'none'; }
+
+// Pick a planet under a screen point: the camera swings to it and zooms.
+function pick(x, y) {
+  if (form.kind !== 'solar') return false;
+  let best = null, bestD = Infinity;
+  for (const pl of form.planets) {
+    const c = planetCenter(pl), q = project(c[0], c[1], c[2]);
+    const rad = pl.r * formSize() * q.f + 16, d = Math.hypot(q.x - x, q.y - y);
+    if (d < rad * 1.4 && d < bestD) { best = pl; bestD = d; }
+  }
+  if (!best) { const q = project(0, 0, 0); if (Math.hypot(q.x - x, q.y - y) < 0.36 * formSize() * q.f + 16) best = { name: 'Sun', sun: true, r: 0.36, fact: 'The star everything else circles.' }; }
+  if (!best) { emit('pick.missed', { x, y }); return false; }
+  form.picked = best; cam.zoomT = best.sun ? 2.2 : 3.2;
+  for (const p of form.petals) p.dim = (p.body === best.name || (best.sun && p.body === 'sun')) ? 1 : 0.45;
+  labelEl.innerHTML = `<div class="n">${best.name}</div><div class="f">${best.fact}</div><div class="h">grab to orbit · scale to zoom · unpick to return</div>`;
+  labelEl.classList.add('show');
+  emit('picked', { name: best.name }); return true;
+}
+function unpick() {
+  if (!form.picked) return;
+  form.picked = null; cam.zoomT = 1; cam.focusT = [0, 0, 0];
+  for (const p of form.petals) p.dim = 1;
+  labelEl.classList.remove('show'); emit('unpicked', {});
+}
+function formRotate(dx, dy) { cam.yaw += dx * 0.006; cam.pitch = clamp(cam.pitch + dy * 0.006, -1.4, 1.4); cam.vyaw = 0; cam.vpitch = 0; }
+function formZoom(f) { cam.zoomT = clamp(cam.zoomT * f, 0.35, 4); emit('form.zoom', { zoom: cam.zoomT }); }
+
+function formStep(dt) {
+  if (!form.kind) return;
+  // Inertia after a hand lets go, and a slow idle turn when nothing holds it.
+  cam.yaw += cam.vyaw * dt; cam.pitch = clamp(cam.pitch + cam.vpitch * dt, -1.4, 1.4);
+  const holding = [...hands.values()].some(h => h.grab);
+  if (!holding) { cam.vyaw += (0.12 - cam.vyaw) * (1 - Math.pow(0.5, dt)); cam.vpitch *= Math.pow(0.2, dt); }
+  cam.zoom += (cam.zoomT - cam.zoom) * (1 - Math.pow(0.05, dt));
+  if (form.kind === 'solar') {
+    for (const pl of form.planets) pl.ang += pl.speed * 0.25 * dt;
+    if (form.picked && !form.picked.sun) cam.focusT = planetCenter(form.picked);
+  }
+  if (form.kind === 'brain') { const b = 1 + 0.02 * Math.sin(now * 2.1); form.breath = b; }
+  for (let i = 0; i < 3; i++) cam.focus[i] += (cam.focusT[i] - cam.focus[i]) * (1 - Math.pow(0.03, dt));
+  if (form.picked) { const c = form.picked.sun ? [0, 0, 0] : planetCenter(form.picked), q = project(c[0], c[1], c[2]); labelEl.style.left = q.x + 'px'; labelEl.style.top = (q.y + form.picked.r * formSize() * q.f + 14 || q.y + 40) + 'px'; }
+}
+function drawForm() {
+  if (!form.kind && !form.petals.length) return;
+  const S = formSize();
+  if (form.kind === 'cube' && form.faces !== 'leaves') {
+    // Painter's order: each face's pane, then the petals riding on it.
+    const faces = FACES.map((fc, fi) => {
+      const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => { const w = facePoint(fc, u, v); return project(w[0], w[1], w[2]); });
+      const [nx, ny, nz] = rot3(fc.n[0], fc.n[1], fc.n[2]);
+      return { fi, corners, depth: corners.reduce((a, c) => a + c.z, 0) / 4, light: 0.72 + 0.28 * clamp(-nz * 0.6 + ny * 0.5 + 0.3, 0, 1) };
+    }).sort((a, b) => b.depth - a.depth);
+    const byFace = FACES.map(() => []);
+    for (const p of form.petals) if (p.mode === 'form' && p.face !== undefined) byFace[p.face].push(p);
+    for (const f of faces) {
+      ctx.beginPath(); f.corners.forEach((c, i) => i ? ctx.lineTo(c.x, c.y) : ctx.moveTo(c.x, c.y)); ctx.closePath();
+      if (form.faces === 'solid') { const g = Math.round(205 * f.light); ctx.fillStyle = `rgba(${g + 10},${g},${g + 12},0.94)`; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1; ctx.stroke(); }
+      else { ctx.fillStyle = `rgba(255,255,255,${0.06 + 0.08 * f.light})`; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1.2; ctx.stroke(); }
+      byFace[f.fi].sort((a, b) => b.depth - a.depth).forEach(drawPetal);
+    }
+    for (const p of form.petals) if (p.mode !== 'form') drawPetal(p);
+    return;
+  }
+  if (form.kind === 'solar') {
+    // Orbit rings, drawn as projected circles behind everything.
+    ctx.lineWidth = 1;
+    for (const pl of form.planets) {
+      ctx.beginPath();
+      for (let i = 0; i <= 72; i++) { const a = i / 72 * Math.PI * 2, q = project(Math.cos(a) * pl.orbit, 0, Math.sin(a) * pl.orbit); i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); }
+      ctx.strokeStyle = `rgba(110,60,105,${form.picked && form.picked !== pl ? 0.1 : 0.32})`; ctx.stroke();
+    }
+    // A warm glow behind the sun.
+    const q = project(0, 0, 0), r = 0.36 * S * q.f * 1.9;
+    const g = ctx.createRadialGradient(q.x, q.y, r * 0.2, q.x, q.y, r); g.addColorStop(0, 'rgba(255,214,150,.45)'); g.addColorStop(1, 'rgba(255,214,150,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(q.x, q.y, r, 0, Math.PI * 2); ctx.fill();
+  }
+  const sorted = form.petals.filter(p => p.mode === 'form').sort((a, b) => b.depth - a.depth);
+  for (const p of sorted) drawPetal(p);
+  for (const p of form.petals) if (p.mode !== 'form') drawPetal(p);
+}
+
 // ── Hands: a petal cursor per hand, and the continuous gestures ────────────
 const hands = new Map();
 function handSeen(id, x, y, pinch) {
@@ -481,19 +767,29 @@ function handLost(id) {
 }
 function grabStart(id, x, y) {
   const h = hands.get(id) || (handSeen(id, x, y, 1), hands.get(id));
+  if (form.kind) { h.grab = { x, y, t: now, form: true, moved: 0 }; cam.vyaw = 0; cam.vpitch = 0; return; }
   const f = frontRect(), tab = active();
   if (!tab || x < f.x - 24 || x > f.x + f.w + 24 || y < f.y - 24 || y > f.y + f.h + 24) { emit('grab.rejected', { id, x, y }); return; }
   h.grab = { x, y, t: now }; tab.el.classList.add('direct');
 }
 function grabMove(id, x, y) {
   const h = hands.get(id); if (!h || !h.grab) { if (h) { h.x = x; h.y = y; } return; }
-  h.x = x; h.y = y; moveBy(x - h.grab.x, y - h.grab.y); h.grab.x = x; h.grab.y = y;
+  h.x = x; h.y = y;
+  if (h.grab.form) { h.grab.moved += Math.hypot(x - h.grab.x, y - h.grab.y); formRotate(x - h.grab.x, y - h.grab.y); h.grab.x = x; h.grab.y = y; return; }
+  moveBy(x - h.grab.x, y - h.grab.y); h.grab.x = x; h.grab.y = y;
 }
 // Letting go decides by velocity: a sideways throw riffles, a throw down at
 // the pool closes, anything else is a drop. Thresholds are in px/s.
 const config = { throwSpeed: 900, flickSpeed: 900, scrubCardsPerSecond: 2500 };   // px/s; tune from the gesture side
 function grabEnd(id, x, y, vx, vy) {
   const h = hands.get(id); if (!h || !h.grab) return;
+  if (h.grab.form) {
+    // A pinch that did not travel is a pick; a throw keeps the form spinning.
+    const tap = h.grab.moved < 8 && Math.hypot(vx, vy) < 300; h.grab = null;
+    if (tap) { if (!pick(x, y) && form.picked) unpick(); }
+    else { cam.vyaw = clamp(vx * 0.004, -4, 4); cam.vpitch = clamp(vy * 0.004, -4, 4); }
+    return;
+  }
   h.grab = null; const tab = active(); if (tab) tab.el.classList.remove('direct');
   const f = frontRect();
   if (vy > config.throwSpeed && vy > Math.abs(vx) * 1.2 || f.y + f.h / 2 > waterline()) { closeActive(); return; }
@@ -517,8 +813,8 @@ function scrubEnd(id, vx) {
   rotateDeck(target);
   if (!target) { for (const t of tabs) t.el.classList.remove('direct'); layoutDeck(); }
 }
-function stretchStart(id, distance) { const h = hands.get(id) || (handSeen(id, W / 2, H / 2, 1), hands.get(id)); h.stretch = { d0: distance || 1, s0: view.scale }; }
-function stretchMove(id, distance) { const h = hands.get(id); if (!h || !h.stretch) return; scaleTo(h.stretch.s0 * (distance / h.stretch.d0)); }
+function stretchStart(id, distance) { const h = hands.get(id) || (handSeen(id, W / 2, H / 2, 1), hands.get(id)); h.stretch = { d0: distance || 1, s0: view.scale, z0: cam.zoomT }; }
+function stretchMove(id, distance) { const h = hands.get(id); if (!h || !h.stretch) return; if (form.kind) { cam.zoomT = clamp(h.stretch.z0 * (distance / h.stretch.d0), 0.35, 4); return; } scaleTo(h.stretch.s0 * (distance / h.stretch.d0)); }
 function stretchEnd(id) { const h = hands.get(id); if (h) h.stretch = null; }
 
 // ── The event surface ──────────────────────────────────────────────────────
@@ -536,8 +832,15 @@ const commands = {
   'close': () => closeActive(),
   'click': d => d && clickTell(d.x, d.y),
   'think': d => setThinking(d ? !!d.on : !thinking),
-  'scale': d => d && scaleTo(view.scale * d.factor),
-  'scale.to': d => d && scaleTo(d.scale),
+  'scale': d => d && (form.kind ? formZoom(d.factor) : scaleTo(view.scale * d.factor)),
+  'scale.to': d => d && (form.kind ? (cam.zoomT = clamp(d.scale, 0.35, 4)) : scaleTo(d.scale)),
+  'duplicate': () => duplicate(),
+  'form': d => d && showForm(d.kind),
+  'form.dismiss': () => dismissForm(),
+  'form.faces': d => setFaces(d && d.mode),
+  'form.rotate': d => d && formRotate(d.dx || 0, d.dy || 0),
+  'pick': d => d && pick(d.x, d.y),
+  'unpick': () => unpick(),
   'move': d => d && moveBy(d.dx || 0, d.dy || 0),
   'hand': d => handSeen(d.id || 'hand', d.x, d.y, d.pinch),
   'hand.lost': d => handLost(d ? d.id || 'hand' : 'hand'),
@@ -556,7 +859,11 @@ window.MahoragaTabs = {
   on(name, fn) { if (!listeners.has(name)) listeners.set(name, new Set()); listeners.get(name).add(fn); return () => listeners.get(name).delete(fn); },
   intents: Object.keys(commands),
   config,
-  get state() { return { ...deckInfo(), view: { ...view }, scrub: scrub.s, thinking }; },
+  get state() {
+    const planets = form.kind === 'solar' ? form.planets.map(pl => { const c = planetCenter(pl), q = project(c[0], c[1], c[2]); return { name: pl.name, x: q.x, y: q.y }; }) : [];
+    return { ...deckInfo(), view: { ...view }, scrub: scrub.s, thinking,
+      form: form.kind ? { kind: form.kind, faces: form.faces, picked: form.picked ? form.picked.name : null, zoom: cam.zoom, settled: form.settled, total: form.total, planets } : null };
+  },
 };
 
 // ── Update ─────────────────────────────────────────────────────────────────
@@ -576,7 +883,7 @@ function update(dt) {
     else if (p.mode === 'gather') {
       const t = clamp((now - p.born - p.delay) / p.dur, 0, 1);
       if (t <= 0) continue;
-      if (p.edge && p.u !== undefined) { const a = anchor(p); p.tx = a.x; p.ty = a.y; }   // the frame may have moved
+      if (p.follow) { const a = p.follow(p); p.tx = a.x; p.ty = a.y; }   // the target may have moved
       const e = flightEase(t), u = 1 - e, w = wind(p.x, p.y, now);
       p.ox += w.x * dt; p.oy += w.y * dt;
       const fl = Math.sin(p.phase + t * p.wobF * Math.PI) * p.wobA * Math.sin(Math.PI * t);
@@ -589,17 +896,18 @@ function update(dt) {
     }
     else if (p.mode === 'settle') {
       const s = clamp((now - p.settleAt) / 0.42, 0, 1), k = Math.sin(s * Math.PI * 1.5) * (1 - s) * 7;
-      if (p.edge && p.u !== undefined) { const a = anchor(p); p.tx = a.x; p.ty = a.y; }
+      if (p.follow) { const a = p.follow(p); p.tx = a.x; p.ty = a.y; }
       p.x = p.tx + p.svx * k; p.y = p.ty + p.svy * k;
       if (s >= 1) {
-        if (p.isClick) { ripples.push({ x: p.tx, y: p.ty, born: now }); ripples.push({ x: p.tx, y: p.ty, born: now + 0.18 }); p.mode = 'fade'; }
+        if (p.form) { p.mode = 'form'; if (p.form.onSettle) p.form.onSettle(); }
+        else if (p.isClick) { ripples.push({ x: p.tx, y: p.ty, born: now }); ripples.push({ x: p.tx, y: p.ty, born: now + 0.18 }); p.mode = 'fade'; }
         else if (p.edge && p.keep) { p.mode = 'border'; p.hoverPhase = rand(0, Math.PI * 2); }
         else { p.mode = 'fade'; if (!p.edge && p.tab) p.tab.settled++; }
       }
     }
     else if (p.mode === 'border') {
       border++;
-      const a = anchor(p), w = wind(a.x, a.y, now), k = now * 1.3 + p.hoverPhase;
+      const a = p.follow(p), w = wind(a.x, a.y, now), k = now * 1.3 + p.hoverPhase;
       p.x = a.x + w.x * 0.16 + Math.sin(k) * 1.5; p.y = a.y + w.y * 0.16 + Math.cos(k * 0.8) * 1.5;
       p.rot = lerpAngle(p.rot, p.baseRot + w.x * 0.012, 1 - Math.pow(0.05, dt)); p.flip += 0.8 * dt;
       if (!settings.calm && Math.random() < dt * 0.02) { startFall(p, 0); p.rippled = true; }
@@ -628,9 +936,18 @@ function update(dt) {
       p.y += ((h.y + Math.sin(p.ang * 1.3) * r * 0.7) - p.y) * (1 - Math.pow(0.001, dt));
       p.rot += p.angV * 0.5 * dt; p.flip += 2 * dt;
     }
+    else if (p.mode === 'form') {
+      // Settled on a 3D surface: sit where the projection says, breathe with the wind.
+      const a = p.follow(p), w = wind(a.x, a.y, now);
+      p.x = a.x + w.x * 0.05; p.y = a.y + w.y * 0.05;
+      p.rot += p.spin * 0.15 * dt; p.flip += 0.6 * dt;
+      const target = p.alphaT === undefined ? 1 : p.alphaT;
+      p.alpha += (target - p.alpha) * (1 - Math.pow(0.05, dt));
+    }
     else if (p.mode === 'fade') { p.alpha -= dt * 2.2; if (p.alpha <= 0) petals.splice(i, 1); }
   }
   for (let i = ripples.length - 1; i >= 0; i--) if (now - ripples[i].born > 1.1) ripples.splice(i, 1);
+  formStep(dt);
 
   for (const t of tabs) if (t.state === 'summoning') {
     const frac = t.settledTotal ? t.settled / t.settledTotal : 1;
@@ -638,7 +955,9 @@ function update(dt) {
     if (frac >= 0.98) { t.state = 'held'; layoutDeck(); }
   }
   const a = active();
-  statEl.textContent = `${petals.length} petals · ${border} on frame · ${tabs.length} tab${tabs.length === 1 ? '' : 's'}${a ? ' · ' + a.site.name : ''} · ×${view.scale.toFixed(2)}`;
+  statEl.textContent = form.kind
+    ? `${petals.length} petals · ${form.kind}${form.kind === 'cube' ? ' · faces ' + form.faces : ''}${form.picked ? ' · ' + form.picked.name : ''} · zoom ×${cam.zoom.toFixed(2)}`
+    : `${petals.length} petals · ${border} on frame · ${tabs.length} tab${tabs.length === 1 ? '' : 's'}${a ? ' · ' + a.site.name : ''} · ×${view.scale.toFixed(2)}`;
 }
 
 // ── Draw
@@ -651,13 +970,18 @@ function draw() {
     ctx.strokeStyle = `rgba(255,255,255,${(1 - t) * (r.small ? 0.5 : 0.85)})`; ctx.lineWidth = 1.2; ctx.stroke();
   }
   for (const p of petals) {
-    if (p.alpha <= 0) continue;
-    if (p.mode === 'gather' && now - p.born < p.delay) continue;
-    if (p.mode === 'fall' && now < p.fallAt) continue;
-    const s = sprites[p.sprite], sc = p.size * SPRITE, fx = 0.3 + 0.7 * Math.abs(Math.cos(p.flip));
-    ctx.save(); ctx.globalAlpha = p.alpha; ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.scale(fx, 1);
-    ctx.drawImage(s, -sc / 2, -sc / 2, sc, sc); ctx.restore();
+    if (p.mode === 'form') continue;
+    drawPetal(p);
   }
+  drawForm();
+}
+function drawPetal(p) {
+  if (p.alpha <= 0.01) return;
+  if (p.mode === 'gather' && now - p.born < p.delay) return;
+  if (p.mode === 'fall' && now < p.fallAt) return;
+  const s = sprites[p.sprite], sc = p.size * SPRITE * (p.ds || 1), fx = 0.3 + 0.7 * Math.abs(Math.cos(p.flip));
+  ctx.save(); ctx.globalAlpha = p.alpha * (p.da === undefined ? 1 : p.da); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.scale(fx, 1);
+  ctx.drawImage(s, -sc / 2, -sc / 2, sc, sc); ctx.restore();
 }
 let last = performance.now();
 function frame(ts) {
@@ -688,6 +1012,7 @@ document.querySelectorAll('.hud button').forEach(b => b.onclick = () => {
   const c = b.dataset.cmd;
   if (c === 'click') doClick();
   else if (c === 'calm') { settings.calm = !settings.calm; setPressed('b-calm', settings.calm); }
+  else if (c.startsWith('form.') && ['cube', 'brain', 'solar'].includes(c.slice(5))) MahoragaTabs.send('form', { kind: c.slice(5) });
   else MahoragaTabs.send(c);
 });
 setPressed('b-calm', settings.calm);
@@ -700,6 +1025,13 @@ window.addEventListener('keydown', e => {
   else if (e.key === 'c' || e.key === 'C') doClick();
   else if (e.key === 't' || e.key === 'T') MahoragaTabs.send('think');
   else if (e.key === 'm' || e.key === 'M') document.getElementById('b-calm').click();
+  else if (e.key === 'd' || e.key === 'D') MahoragaTabs.send('duplicate');
+  else if (e.key === '1') MahoragaTabs.send('form', { kind: 'cube' });
+  else if (e.key === '2') MahoragaTabs.send('form', { kind: 'brain' });
+  else if (e.key === '3') MahoragaTabs.send('form', { kind: 'solar' });
+  else if (e.key === '0') MahoragaTabs.send('form.dismiss');
+  else if (e.key === 'f' || e.key === 'F') MahoragaTabs.send('form.faces');
+  else if (e.key === 'u' || e.key === 'U') MahoragaTabs.send('unpick');
   else if (e.key === '+' || e.key === '=') MahoragaTabs.send('scale', { factor: 1.1 });
   else if (e.key === '-' || e.key === '_') MahoragaTabs.send('scale', { factor: 1 / 1.1 });
 });
@@ -737,6 +1069,7 @@ window.addEventListener('keydown', e => {
   });
   window.addEventListener('wheel', e => { e.preventDefault(); MahoragaTabs.send('scale', { factor: Math.exp(-e.deltaY * 0.0012) }); }, { passive: false });
   document.addEventListener('mouseleave', () => MahoragaTabs.send('hand.lost', { id: ID }));
+  updateFacesButton();
 })();
 </script>
 </body>
