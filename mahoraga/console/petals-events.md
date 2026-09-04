@@ -25,18 +25,21 @@ Attach a recognised, completed gesture to one of these.
 | `scale.to` | `{scale}` | Set the size absolutely (1 = default) |
 | `move` | `{dx, dy}` | Nudge the whole deck |
 | `duplicate` | | The active card tears in two; the copy comes to the front |
-| `form` | `{kind, text?}` | Form a shape out of petals; the deck steps aside. `MahoragaTabs.forms` lists every kind. 3D: `cube`, `sphere`, `torus`, `pyramid`, `cylinder`, `cone`, `icosahedron`. Compound: `dna`, `lantern`, `torii`, `dharma`, `brain`, `solar`. 2D: `circle`, `ring`, `square`, `triangle`, `star`, `hexagon`, `heart`, `spiral`, and `text` with `{text}` |
+| `form` | `{kind, text?}` | Form a shape out of petals; the deck steps aside. `MahoragaTabs.forms` lists every kind. 3D: `cube`, `sphere`, `torus`, `pyramid`, `cylinder`, `cone`, `icosahedron`. Compound: `dna`, `lantern`, `torii`, `dharma`, `brain`, `solar`, `cards` (a fanned hand and a face-down stack, seven fixed cards; `{shuffle: true}` deals seven at random). 2D: `circle`, `ring`, `square`, `triangle`, `star`, `hexagon`, `heart`, `spiral`, and `text` with `{text}` |
 | `form.dismiss` | | The form falls back to the pool and the deck returns |
 | `form.faces` | `{mode}` (optional, cycles if omitted) | Faces of any flat-faced solid (cube, pyramid, icosahedron): `leaves` (every petal), `glass` (edges + see-through pane), `solid` (edges + gray pane that hides what is behind it) |
 | `form.rotate` | `{dx, dy}` | Turn the form by a screen-space delta |
-| `pick` | `{x, y}` | Solar only: pick the planet (or sun) under a point. The camera swings to it, zooms, and labels it. Emits `pick.missed` on empty space |
-| `unpick` | | Back out to the whole system |
+| `pick` | `{x, y}` | Solar: pick the planet (or sun) under a point. The camera swings to it, zooms, and labels it. Cards: lift the card under the point out of the fan and name it; picking it again puts it back. Emits `pick.missed` on empty space |
+| `unpick` | | Back out to the whole system, or put a lifted card back |
+| `cards.shuffle` | | Deal a new hand of seven random cards; the old one falls to the pool |
+| `cards.fan` | `{spread}` | Set how wide the hand fans, 0.15 (a tight stack) to 2.2 (a full arc); 1 is the default |
 | `locate` | `{lat?, lon?, radius?}` | Form a petal map of the streets around you. Without coordinates it asks the browser for your location (a permission prompt; nothing leaves the machine but the map request), falling back to `?lat=&lon=` in the URL, then to a default. Emits `map.located` then `map.built`, or `map.failed` |
 | `form` `{kind: 'map', lat, lon, radius?}` | | The same map at explicit coordinates, no prompt |
 
 While a form is up, the continuous gestures change meaning: `grab` rotates
 the form (a throw keeps it spinning; a pinch that does not travel is a
-`pick`), and `scale` / `stretch` expand it in and out.
+`pick`), and `scale` / `stretch` expand it in and out. With the cards up,
+`scrub` fans the hand under the hand instead of riffling the deck.
 
 ## Continuous: gestures with a clutch that track the hand
 
@@ -82,12 +85,14 @@ off(); // unsubscribe
 | `form.faces` | `{mode}` |
 | `form.zoom` | `{zoom}` |
 | `picked` / `unpicked` / `pick.missed` | `{name}` / `{}` / `{x, y}` |
+| `cards.fanned` | `{spread}` (while a scrub fans the hand) |
 | `map.located` / `map.built` / `map.failed` / `form.failed` | `{lat, lon, how}` / `{lat, lon, radius, place, ways, petals}` / `{reason}` / `{kind, error}` |
 
 `MahoragaTabs.state` returns the deck order, active tab, placement, scrub
 offset and thinking flag at any time, plus `form` when one is up: its kind,
 face mode, picked body, zoom, and for the solar system the current screen
-position of every planet (handy for aiming a `pick`). `MahoragaTabs.intents` lists every
+position of every planet, or for the cards the hand with each card's name,
+screen position and lift (handy for aiming a `pick`). `MahoragaTabs.intents` lists every
 intent name.
 
 ## Adding a shape
@@ -105,7 +110,8 @@ intent and every shape, plus a text field. The page drives the same surface from
 `grab`, shift+drag is `scrub`, the wheel is `scale`. Keys: Space summon,
 arrows riffle, B back, D duplicate, Esc close, C click, T thinking, M calm,
 + and - scale, 1/2/3 form the cube, brain, solar system, F cycles cube faces,
-U unpicks, 0 dismisses the form, 4 forms the map at your location. A click without a drag while a form is up
+U unpicks, 0 dismisses the form, 4 forms the map at your location, 5 deals
+the cards and S shuffles them. A click without a drag while a form is up
 is a `pick`.
 The panel at top left logs the last outcomes as they fire. `P` (or the
 Petals button) switches between the real petal sprites in `assets/petals`

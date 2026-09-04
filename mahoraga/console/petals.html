@@ -126,7 +126,7 @@
   <div class="grp" id="grp-compound"><span class="gl">compound</span></div>
   <div class="grp" id="grp-2D"><span class="gl">2D</span><input id="text-in" type="text" placeholder="text…" value="Mahoraga" /><button data-cmd="form.text">Form text</button></div>
   <div class="grp"><span class="gl">form</span>
-    <button data-cmd="form.faces" id="b-faces"><kbd>F</kbd>Faces: leaves</button><button data-cmd="unpick"><kbd>U</kbd>Unpick</button><button data-cmd="form.dismiss"><kbd>0</kbd>Dismiss form</button>
+    <button data-cmd="form.faces" id="b-faces"><kbd>F</kbd>Faces: leaves</button><button data-cmd="unpick"><kbd>U</kbd>Unpick</button><button data-cmd="cards.shuffle"><kbd>S</kbd>Shuffle</button><button data-cmd="form.dismiss"><kbd>0</kbd>Dismiss form</button>
   </div>
 </div>
 <div class="label" id="label"></div>
@@ -889,6 +889,87 @@ function drawMapUnderlay() {
   }
 }
 
+
+// ── Cards: a fanned hand and a face-down stack, every card a pane with its
+//    rank and suit written in petals. Pick a card to lift it; scrub fans.
+const SUITS = { '♠': { name: 'Spades', sprite: 4 }, '♥': { name: 'Hearts', sprite: 7 }, '♦': { name: 'Diamonds', sprite: 7 }, '♣': { name: 'Clubs', sprite: 4 } };
+const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+const RANK_NAMES = { A: 'Ace', J: 'Jack', Q: 'Queen', K: 'King' };
+const CARD = { w: 0.5, h: 0.7 };
+// Sample a card face: rank and small suit in two corners, a big suit in the
+// middle. Returns points in card space (u across, v up, both in [-1, 1]).
+function cardGlyphs(rank, suit) {
+  const Wc = 120, Hc = 168, c = document.createElement('canvas'); c.width = Wc; c.height = Hc; const g = c.getContext('2d');
+  g.fillStyle = '#000'; g.textAlign = 'left'; g.textBaseline = 'alphabetic';
+  const corner = () => { g.font = '800 40px Inter, sans-serif'; g.fillText(rank, 8, 40); g.font = '32px serif'; g.fillText(suit, 9, 72); };
+  corner(); g.save(); g.translate(Wc, Hc); g.rotate(Math.PI); corner(); g.restore();
+  g.font = '92px serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(suit, Wc / 2, Hc / 2 + 4);
+  const d = g.getImageData(0, 0, Wc, Hc).data, out = [];
+  for (let y = 0; y < Hc; y += 3) for (let x = 0; x < Wc; x += 3) if (d[(y * Wc + x) * 4 + 3] > 90 && Math.random() < 0.75) out.push([((x + 1.5) / Wc) * 2 - 1, -(((y + 1.5) / Hc) * 2 - 1)]);
+  return out;
+}
+function cardWorld(p) {
+  const c = form.cards[p.card], cs = Math.cos(c.rot), sn = Math.sin(c.rot), x = p.local[0] * CARD.w / 2, y = p.local[1] * CARD.h / 2;
+  return [c.x + x * cs - y * sn, c.y + x * sn + y * cs + c.lift * 0.12, c.z - c.lift * 0.28];   // +z is away from the camera
+}
+function cardCorners(c) {
+  const cs = Math.cos(c.rot), sn = Math.sin(c.rot);
+  return [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([u, v]) => { const x = u * CARD.w / 2, y = v * CARD.h / 2; return [c.x + x * cs - y * sn, c.y + x * sn + y * cs + c.lift * 0.12, c.z - c.lift * 0.28]; });
+}
+function buildCards(opts) {
+  const out = [], hand = [];
+  const deck = []; for (const su of Object.keys(SUITS)) for (const r of RANKS) deck.push({ rank: r, suit: su });
+  for (let i = 0; i < 7; i++) hand.push(deck.splice((Math.random() * deck.length) | 0, 1)[0]);
+  if (!opts.shuffle && !opts.random) { hand.length = 0; for (const [r, su] of [['A', '♠'], ['K', '♥'], ['Q', '♦'], ['J', '♣'], ['10', '♥'], ['9', '♠'], ['7', '♦']]) hand.push({ rank: r, suit: su }); }
+  form.cards = []; form.spread = 1; form.faceList = []; form.pane = [250, 246, 238]; form.flat = true; form.swayYaw = 0.1; form.swayPitch = 0.12; form.size = 0.3;
+  // The fan: seven cards on an arc, as if held in a hand.
+  hand.forEach((cd, i) => {
+    const card = { x: 0, y: 0, z: -i * 0.012, rot: 0, lift: 0, liftT: 0, i, rank: cd.rank, suit: cd.suit, name: `${RANK_NAMES[cd.rank] || cd.rank} of ${SUITS[cd.suit].name}`, fan: true };
+    form.cards.push(card);
+    const face = form.faceList.length; form.faceList.push(cardCorners(card));
+    for (let k = 0; k < N(56); k++) { const u = k / N(56) * 4, side = Math.floor(u), t = u - side, e = [[-1 + 2 * t, -1], [1, -1 + 2 * t], [1 - 2 * t, 1], [-1, 1 - 2 * t]][side]; out.push({ local: e, card: form.cards.length - 1, face, edge: true, sizeScale: 0.42, sprite: pickNatural(), world: cardWorld, delay: 0.2 + i * 0.08 }); }
+    for (const [u, v] of cardGlyphs(cd.rank, cd.suit)) out.push({ local: [u * 0.98, v * 0.98], card: form.cards.length - 1, face, edge: true, sizeScale: 0.34, sprite: SUITS[cd.suit].sprite, dim: 0.85, world: cardWorld, delay: 0.35 + i * 0.08 });
+  });
+  // The stack: face-down cards off to the side, a petal lattice on the top back.
+  const STACK = 12;
+  for (let k = 0; k < STACK; k++) {
+    const card = { x: -1.15 - (STACK - 1 - k) * 0.006, y: -0.2 - (STACK - 1 - k) * 0.007, z: 0.08 - k * 0.014, rot: rand(-0.03, 0.03), lift: 0, liftT: 0, i: 7 + k, stack: true, name: 'the deck' };
+    form.cards.push(card); const face = form.faceList.length; form.faceList.push(cardCorners(card));
+    const n = k === STACK - 1 ? N(56) : N(18);
+    for (let j = 0; j < n; j++) { const u = j / n * 4, side = Math.floor(u), t = u - side, e = [[-1 + 2 * t, -1], [1, -1 + 2 * t], [1 - 2 * t, 1], [-1, 1 - 2 * t]][side]; out.push({ local: e, card: form.cards.length - 1, face, edge: true, sizeScale: 0.4, sprite: pickNatural(), world: cardWorld, delay: 0.05 + k * 0.03 }); }
+    if (k === STACK - 1) for (let r = 0; r < 7; r++) for (let q = 0; q < 5; q++) out.push({ local: [-0.7 + q * 0.35, -0.8 + r * 0.2667], card: form.cards.length - 1, face, edge: true, sizeScale: 0.3, sprite: (r + q) % 2 ? 4 : 8, dim: 0.8, world: cardWorld, delay: 0.5 });
+  }
+  layoutCards(); form.cards.forEach((c, i) => { form.faceList[i] = cardCorners(c); }); form.faces = 'solid';
+  return out;
+}
+function layoutCards() {
+  const fan = form.cards.filter(c => c.fan), n = fan.length, pivotY = -1.35, R = 1.55;
+  fan.forEach((c, k) => {
+    const a = (k - (n - 1) / 2) * 0.2 * form.spread;
+    c.rot = -a; c.x = 0.12 + Math.sin(a) * R; c.y = pivotY + Math.cos(a) * R;
+  });
+}
+function cardPick(x, y) {
+  let best = null, bestD = Infinity;
+  for (const c of form.cards) {
+    if (!c.fan) continue;
+    const q = project(c.x, c.y + 0.1, c.z - c.lift * 0.28), d = Math.hypot(q.x - x, q.y - y);
+    if (d < CARD.h * 0.5 * formSize() * q.f + 10 && d < bestD) { best = c; bestD = d; }
+  }
+  if (!best) { emit('pick.missed', { x, y }); return false; }
+  if (form.picked === best) { best.liftT = 0; form.picked = null; labelEl.classList.remove('show'); emit('unpicked', {}); return true; }
+  for (const c of form.cards) c.liftT = 0;
+  best.liftT = 1; form.picked = best;
+  labelEl.innerHTML = `<div class="n">${best.name}</div><div class="h">pick again to put it back · shuffle for a new hand</div>`; labelEl.classList.add('show');
+  emit('picked', { name: best.name }); return true;
+}
+function cardsStep(dt) {
+  let moved = false;
+  for (const c of form.cards) { const l = c.lift; c.lift += (c.liftT - c.lift) * (1 - Math.pow(0.02, dt)); if (Math.abs(c.lift - l) > 1e-4) moved = true; }
+  if (moved || form.spreadDirty) { form.cards.forEach((c, i) => { form.faceList[i] = cardCorners(c); }); form.spreadDirty = false; }
+  if (form.picked) { const q = project(form.picked.x, form.picked.y + CARD.h / 2 + 0.1, form.picked.z - 0.3); labelEl.style.left = q.x + 'px'; labelEl.style.top = (q.y - 70) + 'px'; }
+}
+
 // ── The registry. group is only for the dev panel.
 const FORMS = {
   cube: { build: buildCube, group: '3D' }, sphere: { build: buildSphere, group: '3D' }, torus: { build: buildTorus, group: '3D' },
@@ -900,6 +981,7 @@ const FORMS = {
   ...Object.fromEntries(Object.entries(SHAPES_2D).map(([k, draw]) => [k, { build: () => raster(draw, N(k === 'spiral' ? 700 : 900), 1, k === 'spiral' ? 0.7 : 1), group: '2D' }])),
   text: { build: buildText, group: '2D' },
   map: { build: buildMap, group: 'compound', label: 'Map (here)', locate: true },
+  cards: { build: buildCards, group: 'compound', label: 'Deck of cards' },
 };
 function planetCenter(pl) { return [Math.cos(pl.ang) * pl.orbit, 0, Math.sin(pl.ang) * pl.orbit]; }
 function planetWorld(p) { const c = planetCenter(p.planet); return [c[0] + p.local[0], c[1] + p.local[1], c[2] + p.local[2]]; }
@@ -910,7 +992,7 @@ async function showForm(kind, opts) {
   if (form.kind) dismissForm(true);
   const token = ++formToken;
   form.kind = kind; form.picked = null; form.settled = 0; form.total = 0; form.petals = []; form.planets = []; form.faceList = null; form.flat = false; form.map = null;
-  form.swayPitch = undefined; form.swayYaw = undefined; form.size = def.size || 0.19; form.breath = 0;
+  form.swayPitch = undefined; form.swayYaw = undefined; form.size = def.size || 0.19; form.breath = 0; form.cards = null; form.pane = null;
   cam.zoom = cam.zoomT = 1; cam.focus = [0, 0, 0]; cam.focusT = [0, 0, 0]; cam.vyaw = 0.25; cam.vpitch = 0;
   cam.pitch = def.cam ? def.cam.pitch : 0.35; cam.yaw = def.cam ? def.cam.yaw : 0.6;
   let spec;
@@ -929,6 +1011,7 @@ async function showForm(kind, opts) {
     const keep = p.sprite; Object.assign(p, sp); if (p.sprite === undefined || p.sprite === null) p.sprite = keep;   // builders may leave the tint alone
     if (p.sprite < 4 && sprites === realSprites) p.sprite = pickNatural();   // 'pink' on the real sheet means any natural petal
     if (sp.planet) p.world = planetWorld;
+    if (sp.world) p.world = sp.world;
     p.form = form; p.follow = followForm; p.delay = sp.delay !== undefined ? sp.delay * 1.6 + rand(0, 0.2) : rand(0, 0.9); p.alphaT = 1;
     startFlight(p, s, followForm(p), settings.duration * rand(0.8, 1.3)); p.wobA *= 0.7;
     form.petals.push(p); petals.push(p);
@@ -941,7 +1024,7 @@ function dismissForm(quiet) {
   if (!form.kind) return;
   const kind = form.kind;
   for (const p of form.petals) { startFall(p, rand(0, 0.5)); p.fall *= 1.4; p.die = now + rand(1.4, 2.6); p.ds = 1; p.da = 1; }
-  form.petals = []; form.kind = null; form.picked = null; form.planets = []; form.faceList = null; form.flat = false; form.map = null;
+  form.petals = []; form.kind = null; form.picked = null; form.planets = []; form.faceList = null; form.flat = false; form.map = null; form.cards = null;
   labelEl.classList.remove('show'); layoutDeck(); updateFacesButton();
   if (!quiet) { if (active()) setTimeout(() => { if (!form.kind && active()) outline(active(), 0.8); }, 400); emit('form.dismissed', { kind }); }
 }
@@ -957,6 +1040,7 @@ function updateFacesButton() { const b = document.getElementById('b-faces'); if 
 
 // Pick a planet under a screen point: the camera swings to it and zooms.
 function pick(x, y) {
+  if (form.cards) return cardPick(x, y);
   if (form.kind !== 'solar') return false;
   let best = null, bestD = Infinity;
   for (const pl of form.planets) {
@@ -974,6 +1058,7 @@ function pick(x, y) {
 }
 function unpick() {
   if (!form.picked) return;
+  if (form.cards) { form.picked.liftT = 0; form.picked = null; labelEl.classList.remove('show'); emit('unpicked', {}); return; }
   form.picked = null; cam.zoomT = 1; cam.focusT = [0, 0, 0];
   for (const p of form.petals) p.dim = 1;
   labelEl.classList.remove('show'); emit('unpicked', {});
@@ -1000,6 +1085,7 @@ function formStep(dt) {
     if (form.picked && !form.picked.sun) cam.focusT = planetCenter(form.picked);
   }
   if (form.kind === 'brain') form.breath = 1 + 0.02 * Math.sin(now * 2.1);
+  if (form.cards) cardsStep(dt);
   for (let i = 0; i < 3; i++) cam.focus[i] += (cam.focusT[i] - cam.focus[i]) * (1 - Math.pow(0.03, dt));
   if (form.map) { const q = project(0, 0, -1.08); labelEl.style.left = clamp(q.x, 160, W - 160) + 'px'; labelEl.style.top = clamp(q.y - 92, 14, H - 120) + 'px'; }
   if (form.picked) { const c = form.picked.sun ? [0, 0, 0] : planetCenter(form.picked), q = project(c[0], c[1], c[2]); labelEl.style.left = q.x + 'px'; labelEl.style.top = (q.y + form.picked.r * formSize() * q.f + 14) + 'px'; }
@@ -1019,7 +1105,10 @@ function drawForm() {
     for (const p of form.petals) if (p.mode === 'form' && p.face !== undefined) byFace[p.face].push(p);
     for (const f of faces) {
       ctx.beginPath(); f.corners.forEach((c, i) => i ? ctx.lineTo(c.x, c.y) : ctx.moveTo(c.x, c.y)); ctx.closePath();
-      if (form.faces === 'solid') { const g = Math.round(205 * f.light); ctx.fillStyle = `rgba(${g + 10},${g},${g + 12},0.94)`; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 1; ctx.stroke(); }
+      if (form.faces === 'solid') {
+        const [pr, pg, pb] = form.pane || [215, 205, 217], l = 0.8 + 0.2 * f.light;
+        ctx.fillStyle = `rgba(${Math.round(pr * l)},${Math.round(pg * l)},${Math.round(pb * l)},0.95)`; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1; ctx.stroke();
+      }
       else { ctx.fillStyle = `rgba(255,255,255,${0.06 + 0.08 * f.light})`; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1.2; ctx.stroke(); }
       byFace[f.fi].sort((a, b) => b.depth - a.depth).forEach(drawPetal);
     }
@@ -1097,16 +1186,19 @@ function grabEnd(id, x, y, vx, vy) {
 }
 function scrubStart(id, x) {
   const h = hands.get(id) || (handSeen(id, x, H / 2, 1), hands.get(id));
+  if (form.cards) { h.scrub = true; h.scrubX0 = x; h.spread0 = form.spread; return; }
   if (tabs.length < 2) return;
   h.scrub = true; scrub.on = true; scrub.x0 = x; scrub.s0 = scrub.s;
   for (const t of tabs) t.el.classList.add('direct');
 }
 function scrubMove(id, x) {
   const h = hands.get(id); if (!h || !h.scrub) return;
+  if (form.cards) { form.spread = clamp(h.spread0 + (x - h.scrubX0) / (W * 0.25), 0.15, 2.2); layoutCards(); form.spreadDirty = true; emit('cards.fanned', { spread: form.spread }); return; }
   h.x = x; scrub.s = scrub.s0 + (scrub.x0 - x) / (base.w * view.scale * 0.45); layoutDeck(true);
 }
 function scrubEnd(id, vx) {
   const h = hands.get(id); if (!h || !h.scrub) return;
+  if (form.cards) { h.scrub = false; return; }
   h.scrub = false; scrub.on = false;
   let target = Math.round(scrub.s - vx / config.scrubCardsPerSecond);
   rotateDeck(target);
@@ -1136,6 +1228,8 @@ const commands = {
   'duplicate': () => duplicate(),
   'form': d => d && showForm(d.kind, d),
   'locate': d => locate(d),
+  'cards.shuffle': () => showForm('cards', { shuffle: true }),
+  'cards.fan': d => { if (form.cards && d) { form.spread = clamp(d.spread, 0.15, 2.2); layoutCards(); form.spreadDirty = true; } },
   'form.dismiss': () => dismissForm(),
   'form.faces': d => setFaces(d && d.mode),
   'form.rotate': d => d && formRotate(d.dx || 0, d.dy || 0),
@@ -1163,7 +1257,8 @@ window.MahoragaTabs = {
   get state() {
     const planets = form.kind === 'solar' ? form.planets.map(pl => { const c = planetCenter(pl), q = project(c[0], c[1], c[2]); return { name: pl.name, x: q.x, y: q.y }; }) : [];
     return { ...deckInfo(), view: { ...view }, scrub: scrub.s, thinking, petals: sprites === realSprites ? 'real' : 'drawn',
-      form: form.kind ? { kind: form.kind, faces: form.faces, picked: form.picked ? form.picked.name : null, zoom: cam.zoom, settled: form.settled, total: form.total, planets, place: form.map ? form.map.place : undefined } : null };
+      form: form.kind ? { kind: form.kind, faces: form.faces, picked: form.picked ? form.picked.name : null, zoom: cam.zoom, settled: form.settled, total: form.total, planets, place: form.map ? form.map.place : undefined,
+        hand: form.cards ? form.cards.filter(c => c.fan).map(c => { const q = project(c.x, c.y, c.z); return { name: c.name, x: q.x, y: q.y, lift: c.lift }; }) : undefined } : null };
   },
 };
 
@@ -1345,6 +1440,8 @@ window.addEventListener('keydown', e => {
   else if (e.key === '3') MahoragaTabs.send('form', { kind: 'solar' });
   else if (e.key === '0') MahoragaTabs.send('form.dismiss');
   else if (e.key === '4') MahoragaTabs.send('locate');
+  else if (e.key === '5') MahoragaTabs.send('form', { kind: 'cards' });
+  else if (e.key === 's' || e.key === 'S') { if (form.cards) MahoragaTabs.send('cards.shuffle'); }
   else if (e.key === 'f' || e.key === 'F') MahoragaTabs.send('form.faces');
   else if (e.key === 'u' || e.key === 'U') MahoragaTabs.send('unpick');
   else if (e.key === '+' || e.key === '=') MahoragaTabs.send('scale', { factor: 1.1 });
