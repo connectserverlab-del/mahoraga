@@ -31,6 +31,8 @@ Attach a recognised, completed gesture to one of these.
 | `form.rotate` | `{dx, dy}` | Turn the form by a screen-space delta |
 | `pick` | `{x, y}` | Solar only: pick the planet (or sun) under a point. The camera swings to it, zooms, and labels it. Emits `pick.missed` on empty space |
 | `unpick` | | Back out to the whole system |
+| `locate` | `{lat?, lon?, radius?}` | Form a petal map of the streets around you. Without coordinates it asks the browser for your location (a permission prompt; nothing leaves the machine but the map request), falling back to `?lat=&lon=` in the URL, then to a default. Emits `map.located` then `map.built`, or `map.failed` |
+| `form` `{kind: 'map', lat, lon, radius?}` | | The same map at explicit coordinates, no prompt |
 
 While a form is up, the continuous gestures change meaning: `grab` rotates
 the form (a throw keeps it spinning; a pinch that does not travel is a
@@ -80,6 +82,7 @@ off(); // unsubscribe
 | `form.faces` | `{mode}` |
 | `form.zoom` | `{zoom}` |
 | `picked` / `unpicked` / `pick.missed` | `{name}` / `{}` / `{x, y}` |
+| `map.located` / `map.built` / `map.failed` / `form.failed` | `{lat, lon, how}` / `{lat, lon, radius, place, ways, petals}` / `{reason}` / `{kind, error}` |
 
 `MahoragaTabs.state` returns the deck order, active tab, placement, scrub
 offset and thinking flag at any time, plus `form` when one is up: its kind,
@@ -102,7 +105,7 @@ intent and every shape, plus a text field. The page drives the same surface from
 `grab`, shift+drag is `scrub`, the wheel is `scale`. Keys: Space summon,
 arrows riffle, B back, D duplicate, Esc close, C click, T thinking, M calm,
 + and - scale, 1/2/3 form the cube, brain, solar system, F cycles cube faces,
-U unpicks, 0 dismisses the form. A click without a drag while a form is up
+U unpicks, 0 dismisses the form, 4 forms the map at your location. A click without a drag while a form is up
 is a `pick`.
 The panel at top left logs the last outcomes as they fire. `P` (or the
 Petals button) switches between the real petal sprites in `assets/petals`

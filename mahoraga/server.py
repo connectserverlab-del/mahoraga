@@ -273,6 +273,133 @@ def create_app() -> FastAPI:
         """Standalone prototype of the petal-summon viewer; not part of the console yet."""
         return FileResponse(CONSOLE_DIR / "petals.html")
 
+    # ── Map data for the petal map: streets, water and parks around a point ──
+    # OpenStreetMap via Overpass, reverse-geocoded with Nominatim, projected to
+    # local metres and thinned so the browser only has to place petals.
+    _map_cache: dict[str, tuple[float, dict]] = {}
+
+    @app.get("/map")
+    async def map_around(lat: float, lon: float, radius: int = 900) -> dict:
+        import math
+        import time
+
+        import httpx
+
+        import json
+
+        radius = max(150, min(int(radius), 2500))
+        key = f"{lat:.3f},{lon:.3f},{radius}"
+        hit = _map_cache.get(key)
+        if hit and time.time() - hit[0] < 3600:
+            return hit[1]
+        # A disk cache too: Overpass is public and often busy, and a map you
+        # have seen once should not depend on it being up the next time.
+        cache_dir = Path(os.environ.get("MAHORAGA_HOME", str(Path.home() / ".mahoraga"))) / "map-cache"
+        cache_file = cache_dir / (key.replace(",", "_") + ".json")
+        if cache_file.is_file() and time.time() - cache_file.stat().st_mtime < 7 * 86400:
+            try:
+                cached = json.loads(cache_file.read_text())
+                _map_cache[key] = (time.time(), cached)
+                return cached
+            except Exception:  # noqa: BLE001 - a bad cache file is just a miss
+                pass
+
+        minor = "|footway|cycleway|path|service|track" if radius <= 500 else ""
+        highways = (
+            "motorway|motorway_link|trunk|trunk_link|primary|primary_link|secondary|secondary_link|"
+            "tertiary|tertiary_link|residential|unclassified|living_street|pedestrian" + minor
+        )
+        query = f"""[out:json][timeout:25];(
+          way(around:{radius},{lat},{lon})["highway"~"^({highways})$"];
+          way(around:{radius},{lat},{lon})["waterway"~"^(river|stream|canal)$"];
+          way(around:{radius},{lat},{lon})["natural"="water"];
+          way(around:{radius},{lat},{lon})["leisure"~"^(park|garden)$"];
+          way(around:{radius},{lat},{lon})["railway"="rail"];
+        );out geom;"""
+        headers = {"User-Agent": "mahoraga-console/0.1 (petal map prototype)"}
+        data = None
+        place = None
+        async with httpx.AsyncClient(timeout=25, headers=headers) as client:
+            for url in (
+                "https://overpass-api.de/api/interpreter",
+                "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+                "https://overpass.kumi.systems/api/interpreter",
+            ):
+                try:
+                    r = await client.post(url, data={"data": query})
+                    r.raise_for_status()
+                    data = r.json()
+                    break
+                except Exception as exc:  # noqa: BLE001 - try the next mirror
+                    logger.warning("overpass %s failed: %r", url, exc)
+            if data is None:
+                stale = cache_file if cache_file.is_file() else None
+                if stale:
+                    return json.loads(stale.read_text())
+                raise HTTPException(status_code=502, detail="map data unavailable")
+            try:
+                r = await client.get(
+                    "https://nominatim.openstreetmap.org/reverse",
+                    params={"format": "jsonv2", "lat": lat, "lon": lon, "zoom": 16, "accept-language": "en"},
+                )
+                if r.status_code == 200:
+                    addr = r.json().get("address", {})
+                    parts: list[str] = []
+                    for k in ("neighbourhood", "suburb", "city_district", "city", "town", "village", "state", "country"):
+                        v = addr.get(k)
+                        if v and v not in parts:
+                            parts.append(v)
+                    place = ", ".join(parts[:3]) or None
+            except Exception as exc:  # noqa: BLE001 - the name is a nicety
+                logger.warning("nominatim failed: %s", exc)
+
+        kx = 111_320 * math.cos(math.radians(lat))
+        ky = 110_540
+        ways = []
+        for el in data.get("elements", []):
+            tags = el.get("tags", {})
+            geom = el.get("geometry") or []
+            if len(geom) < 2:
+                continue
+            if "highway" in tags:
+                h = tags["highway"].replace("_link", "")
+                if h in ("motorway", "trunk", "primary"):
+                    cls = "major"
+                elif h in ("secondary", "tertiary"):
+                    cls = "road"
+                elif h in ("footway", "cycleway", "path", "service", "track", "pedestrian"):
+                    cls = "minor"
+                else:
+                    cls = "street"
+            elif "waterway" in tags or tags.get("natural") == "water":
+                cls = "water"
+            elif "leisure" in tags:
+                cls = "park"
+            elif "railway" in tags:
+                cls = "rail"
+            else:
+                continue
+            pts: list[list[float]] = []
+            last = None
+            for g in geom:
+                x = (g["lon"] - lon) * kx
+                y = (g["lat"] - lat) * ky
+                if last is None or (x - last[0]) ** 2 + (y - last[1]) ** 2 >= 36:  # drop points under 6 m apart
+                    pts.append([round(x, 1), round(y, 1)])
+                    last = (x, y)
+            if len(pts) >= 2:
+                ways.append({"c": cls, "n": tags.get("name:en") or tags.get("name"), "p": pts})
+
+        out = {"lat": lat, "lon": lon, "radius": radius, "place": place, "ways": ways,
+               "attribution": "© OpenStreetMap contributors"}
+        _map_cache[key] = (time.time(), out)
+        try:
+            cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_file.write_text(json.dumps(out))
+        except Exception as exc:  # noqa: BLE001 - the disk cache is best-effort
+            logger.warning("map cache write failed: %s", exc)
+        return out
+
     return app
 
 

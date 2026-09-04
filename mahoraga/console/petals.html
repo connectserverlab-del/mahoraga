@@ -213,10 +213,11 @@ const TINTS = [['#fbe4ec', '#f2b7cb'], ['#f9d5e0', '#eea6bf'], ['#fdeff4', '#f4c
   ['#cfe0f5', '#7aa6da'],   // 6 water blue: Earth, Uranus, Neptune
   ['#f5c0b0', '#d4735c'],   // 7 rust: Mars, Mercury
   ['#f7dcc4', '#d9a06e'],   // 8 tan: Venus, Jupiter, Saturn
+  ['#cfe8c3', '#6fae72'],   // 9 leaf green: parks on the map
 ];
 const SPRITE = 28;
 // Dyes, by index, shared by both sprite sets: 4 mauve, 5 gold, 6 blue, 7 rust, 8 tan.
-const DYES = { 4: ['#8c5f7c', 0.7], 5: ['#f0b85a', 0.3], 6: ['#7aa6da', 0.4], 7: ['#d4735c', 0.45], 8: ['#d9a06e', 0.3] };   // mauve is a shadow tone, not a highlight
+const DYES = { 4: ['#8c5f7c', 0.7], 5: ['#f0b85a', 0.3], 6: ['#7aa6da', 0.4], 7: ['#d4735c', 0.45], 8: ['#d9a06e', 0.3], 9: ['#6fae72', 0.4] };   // mauve is a shadow tone, not a highlight
 const procSprites = TINTS.map(([light, deep]) => {
   const c = document.createElement('canvas'); c.width = c.height = SPRITE * 2;
   const g = c.getContext('2d'); g.scale(2, 2); g.translate(SPRITE / 2, SPRITE / 2);
@@ -249,15 +250,15 @@ const pickNatural = () => NATURAL[(Math.random() * NATURAL.length) | 0];
     };
     const n = meta.frames.length, all = Array.from({ length: n }, (_, i) => frame(i));
     const set = [all[0], all[1], all[2], all[3]];
-    for (let d = 4; d <= 8; d++) set[d] = dye(all[(d - 4) % 4], DYES[d]);
-    for (let i = 4; i < n; i++) set.push(all[i]);
+    for (let d = 4; d <= 9; d++) set[d] = dye(all[(d - 4) % 4], DYES[d]);
+    for (let i = 4; i < n; i++) set.push(all[i]);      // natural petals continue from index 10
     realSprites = set;
     if (settings.realPetals) usePetals(true);
   } catch (e) { console.warn('real petals unavailable, keeping drawn ones', e); }
 })();
 function usePetals(real) {
   settings.realPetals = real;
-  if (real && realSprites) { sprites = realSprites; spriteScale = 1.25; NATURAL = [0, 1, 2, 3, ...Array.from({ length: realSprites.length - 9 }, (_, i) => i + 9)]; }
+  if (real && realSprites) { sprites = realSprites; spriteScale = 1.25; NATURAL = [0, 1, 2, 3, ...Array.from({ length: realSprites.length - 10 }, (_, i) => i + 10)]; }
   else { sprites = procSprites; spriteScale = 1; NATURAL = [0, 1, 2, 3]; }
   const b = document.getElementById('b-petals'); if (b) b.innerHTML = `<kbd>P</kbd>Petals: ${settings.realPetals ? 'real' : 'drawn'}`;
 }
@@ -817,6 +818,77 @@ function buildSolar() {
   return out;
 }
 
+
+// ── Map: the streets around a point, made of petals. Data comes from the
+//    server's /map route (OpenStreetMap), already in local metres. The map
+//    lies on the ground plane and grows outward from where you are.
+const URL_LOC = (() => { const q = new URLSearchParams(location.search); const lat = parseFloat(q.get('lat')), lon = parseFloat(q.get('lon')); return isFinite(lat) && isFinite(lon) ? { lat, lon } : null; })();
+const DEFAULT_LOC = { lat: 35.0116, lon: 135.7681 };   // Kyoto, until the browser tells us better
+const MAP_STYLE = {
+  major: { sprite: 8, size: 0.66, w: 2.4, line: 'rgba(255,236,200,.35)' }, road: { sprite: 8, size: 0.52, w: 1.7, line: 'rgba(255,255,255,.3)' },
+  street: { sprite: 2, size: 0.42, w: 1.1, line: 'rgba(255,255,255,.22)' }, minor: { sprite: 1, size: 0.32, w: 0.7, line: 'rgba(255,255,255,.14)' },
+  water: { sprite: 6, size: 0.54, w: 2.2, line: 'rgba(120,170,225,.4)' }, park: { sprite: 9, size: 0.42, w: 1.0, line: 'rgba(110,175,115,.3)' },
+  rail: { sprite: 4, size: 0.36, w: 1.0, line: 'rgba(120,90,120,.3)' },
+};
+async function buildMap(opts) {
+  const lat = opts.lat ?? (URL_LOC || DEFAULT_LOC).lat, lon = opts.lon ?? (URL_LOC || DEFAULT_LOC).lon, radius = opts.radius || 900;
+  const r = await fetch(`/map?lat=${lat}&lon=${lon}&radius=${radius}`); if (!r.ok) throw new Error('map ' + r.status);
+  const data = await r.json(); form.map = data; form.flat = true; form.swayPitch = 1.05; form.swayYaw = 0.14; form.size = 0.36;
+  let total = 0; for (const w of data.ways) for (let i = 1; i < w.p.length; i++) total += Math.hypot(w.p[i][0] - w.p[i - 1][0], w.p[i][1] - w.p[i - 1][1]);
+  const spacing = Math.max(radius / 120, total / N(1800));   // so the whole map is about 1,800 petals
+  const out = [], R = radius;
+  for (const w of data.ways) {
+    const st = MAP_STYLE[w.c] || MAP_STYLE.street; let carry = rand(0, spacing);
+    for (let i = 1; i < w.p.length; i++) {
+      const [ax, ay] = w.p[i - 1], [bx, by] = w.p[i], len = Math.hypot(bx - ax, by - ay); if (!len) continue;
+      let d = carry;
+      for (; d < len; d += spacing) {
+        const t = d / len, x = ax + (bx - ax) * t, y = ay + (by - ay) * t, dist = Math.hypot(x, y);
+        if (dist > R) continue;
+        out.push({ p3: [x / R, 0, -y / R], sprite: st.sprite, sizeScale: st.size, dim: 0.95, delay: dist / R });   // grows outward from you
+      }
+      carry = d - len;
+    }
+  }
+  for (let i = 0; i < N(44); i++) { const a = rand(0, Math.PI * 2), rr = 0.014 * rand(0.3, 1); out.push({ p3: [Math.cos(a) * rr, rand(0, 0.17), Math.sin(a) * rr], sprite: 3, sizeScale: 0.75, delay: 0, dim: 1 }); }   // you are here
+  labelEl.innerHTML = `<div class="h">you are here</div><div class="n">${data.place || `${lat.toFixed(4)}, ${lon.toFixed(4)}`}</div><div class="f">${data.ways.length} ways within ${radius} m · ${data.attribution}</div>`;
+  labelEl.classList.add('show');
+  emit('map.built', { lat, lon, radius, place: data.place, ways: data.ways.length, petals: out.length });
+  return out;
+}
+// Ask the browser where we are, then form the map there. Falls back to the
+// URL's lat/lon, then to the default, and says which it used.
+function locate(opts) {
+  opts = opts || {};
+  const go = (loc, how) => { emit('map.located', { ...loc, how }); showForm('map', { ...opts, ...loc }); };
+  if (opts.lat !== undefined && opts.lon !== undefined) return go({ lat: opts.lat, lon: opts.lon }, 'given');
+  if (!navigator.geolocation) return go(URL_LOC || DEFAULT_LOC, URL_LOC ? 'url' : 'default');
+  labelEl.innerHTML = '<div class="n">Finding you…</div>'; labelEl.classList.add('show'); labelEl.style.left = W / 2 + 'px'; labelEl.style.top = H * 0.4 + 'px';
+  navigator.geolocation.getCurrentPosition(
+    pos => go({ lat: pos.coords.latitude, lon: pos.coords.longitude }, 'geolocation'),
+    err => { emit('map.failed', { reason: err.message }); go(URL_LOC || DEFAULT_LOC, URL_LOC ? 'url' : 'default'); },
+    { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 });
+}
+function drawMapUnderlay() {
+  const m = form.map; if (!m) return; const R = m.radius, S = formSize();
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  for (const w of m.ways) {
+    const st = MAP_STYLE[w.c] || MAP_STYLE.street;
+    ctx.beginPath(); let pen = false;
+    for (let i = 0; i < w.p.length; i++) {
+      const [x, y] = w.p[i]; if (x * x + y * y > R * R * 1.05) { pen = false; continue; }   // clipped to the map's circle
+      const q = project(x / R, 0, -y / R); pen ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); pen = true;
+    }
+    ctx.strokeStyle = st.line; ctx.lineWidth = Math.max(0.6, st.w * S / 260); ctx.stroke();
+  }
+  // Pulse rings spreading from you along the ground.
+  for (let k = 0; k < 2; k++) {
+    const t = (now * 0.5 + k * 0.5) % 1, rr = 0.03 + t * 0.16;
+    ctx.beginPath(); for (let i = 0; i <= 48; i++) { const a = i / 48 * Math.PI * 2, q = project(Math.cos(a) * rr, 0.002, Math.sin(a) * rr); i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y); }
+    ctx.strokeStyle = `rgba(255,120,165,${(1 - t) * 0.75})`; ctx.lineWidth = 1.6; ctx.stroke();
+  }
+}
+
 // ── The registry. group is only for the dev panel.
 const FORMS = {
   cube: { build: buildCube, group: '3D' }, sphere: { build: buildSphere, group: '3D' }, torus: { build: buildTorus, group: '3D' },
@@ -827,19 +899,26 @@ const FORMS = {
   brain: { build: buildBrain, group: 'compound' }, solar: { build: buildSolar, group: 'compound', label: 'Solar system', size: 0.14, cam: { pitch: 0.55, yaw: 0.3 } },
   ...Object.fromEntries(Object.entries(SHAPES_2D).map(([k, draw]) => [k, { build: () => raster(draw, N(k === 'spiral' ? 700 : 900), 1, k === 'spiral' ? 0.7 : 1), group: '2D' }])),
   text: { build: buildText, group: '2D' },
+  map: { build: buildMap, group: 'compound', label: 'Map (here)', locate: true },
 };
 function planetCenter(pl) { return [Math.cos(pl.ang) * pl.orbit, 0, Math.sin(pl.ang) * pl.orbit]; }
 function planetWorld(p) { const c = planetCenter(p.planet); return [c[0] + p.local[0], c[1] + p.local[1], c[2] + p.local[2]]; }
 
-function showForm(kind, opts) {
+let formToken = 0;
+async function showForm(kind, opts) {
   const def = FORMS[kind]; if (!def) { console.warn('MahoragaTabs: unknown form', kind); return; }
   if (form.kind) dismissForm(true);
-  form.kind = kind; form.picked = null; form.settled = 0; form.petals = []; form.planets = []; form.faceList = null; form.flat = false; form.size = def.size || 0.19; form.breath = 0;
+  const token = ++formToken;
+  form.kind = kind; form.picked = null; form.settled = 0; form.total = 0; form.petals = []; form.planets = []; form.faceList = null; form.flat = false; form.map = null;
+  form.swayPitch = undefined; form.swayYaw = undefined; form.size = def.size || 0.19; form.breath = 0;
   cam.zoom = cam.zoomT = 1; cam.focus = [0, 0, 0]; cam.focusT = [0, 0, 0]; cam.vyaw = 0.25; cam.vpitch = 0;
   cam.pitch = def.cam ? def.cam.pitch : 0.35; cam.yaw = def.cam ? def.cam.yaw : 0.6;
-  const spec = def.build(opts || {});
+  let spec;
+  try { spec = await def.build(opts || {}); }
+  catch (e) { console.warn('form failed', e); if (token === formToken) { form.kind = null; labelEl.classList.remove('show'); layoutDeck(); emit('form.failed', { kind, error: String(e) }); } return; }
+  if (token !== formToken) return;     // something newer was asked for while this one was loading
   if (def.flat) form.flat = true;      // planar objects sway to face you instead of spinning edge-on
-  if (form.flat) { cam.pitch = 0.1; cam.yaw = 0.25; cam.vyaw = 0; }
+  if (form.flat) { cam.pitch = form.swayPitch ?? 0.1; cam.yaw = 0.25; cam.vyaw = 0; }
   form.total = spec.length;
   if (active()) { settleNow(active()); releaseBorder(active()); }
   if (thinking) setThinking(false);
@@ -850,7 +929,7 @@ function showForm(kind, opts) {
     const keep = p.sprite; Object.assign(p, sp); if (p.sprite === undefined || p.sprite === null) p.sprite = keep;   // builders may leave the tint alone
     if (p.sprite < 4 && sprites === realSprites) p.sprite = pickNatural();   // 'pink' on the real sheet means any natural petal
     if (sp.planet) p.world = planetWorld;
-    p.form = form; p.follow = followForm; p.delay = rand(0, 0.9); p.alphaT = 1;
+    p.form = form; p.follow = followForm; p.delay = sp.delay !== undefined ? sp.delay * 1.6 + rand(0, 0.2) : rand(0, 0.9); p.alphaT = 1;
     startFlight(p, s, followForm(p), settings.duration * rand(0.8, 1.3)); p.wobA *= 0.7;
     form.petals.push(p); petals.push(p);
   });
@@ -862,7 +941,7 @@ function dismissForm(quiet) {
   if (!form.kind) return;
   const kind = form.kind;
   for (const p of form.petals) { startFall(p, rand(0, 0.5)); p.fall *= 1.4; p.die = now + rand(1.4, 2.6); p.ds = 1; p.da = 1; }
-  form.petals = []; form.kind = null; form.picked = null; form.planets = []; form.faceList = null; form.flat = false;
+  form.petals = []; form.kind = null; form.picked = null; form.planets = []; form.faceList = null; form.flat = false; form.map = null;
   labelEl.classList.remove('show'); layoutDeck(); updateFacesButton();
   if (!quiet) { if (active()) setTimeout(() => { if (!form.kind && active()) outline(active(), 0.8); }, 400); emit('form.dismissed', { kind }); }
 }
@@ -910,8 +989,9 @@ function formStep(dt) {
     if (form.flat) {
       // A flat shape sways to face you rather than turning edge-on.
       cam.vyaw *= Math.pow(0.15, dt); cam.vpitch *= Math.pow(0.15, dt);
-      cam.yaw += (0.35 * Math.sin(now * 0.5) - cam.yaw) * (1 - Math.pow(0.4, dt));
-      cam.pitch += (0.1 + 0.08 * Math.sin(now * 0.7) - cam.pitch) * (1 - Math.pow(0.4, dt));
+      const ya = form.swayYaw ?? 0.35, pb = form.swayPitch ?? 0.1;
+      cam.yaw += (ya * Math.sin(now * 0.5) - cam.yaw) * (1 - Math.pow(0.4, dt));
+      cam.pitch += (pb + 0.06 * Math.sin(now * 0.7) - cam.pitch) * (1 - Math.pow(0.4, dt));
     } else { cam.vyaw += (0.12 - cam.vyaw) * (1 - Math.pow(0.5, dt)); cam.vpitch *= Math.pow(0.2, dt); }
   }
   cam.zoom += (cam.zoomT - cam.zoom) * (1 - Math.pow(0.05, dt));
@@ -921,6 +1001,7 @@ function formStep(dt) {
   }
   if (form.kind === 'brain') form.breath = 1 + 0.02 * Math.sin(now * 2.1);
   for (let i = 0; i < 3; i++) cam.focus[i] += (cam.focusT[i] - cam.focus[i]) * (1 - Math.pow(0.03, dt));
+  if (form.map) { const q = project(0, 0, -1.08); labelEl.style.left = clamp(q.x, 160, W - 160) + 'px'; labelEl.style.top = clamp(q.y - 92, 14, H - 120) + 'px'; }
   if (form.picked) { const c = form.picked.sun ? [0, 0, 0] : planetCenter(form.picked), q = project(c[0], c[1], c[2]); labelEl.style.left = q.x + 'px'; labelEl.style.top = (q.y + form.picked.r * formSize() * q.f + 14) + 'px'; }
 }
 function drawForm() {
@@ -945,6 +1026,7 @@ function drawForm() {
     for (const p of form.petals) if (p.mode !== 'form') drawPetal(p);
     return;
   }
+  if (form.map) drawMapUnderlay();
   if (form.kind === 'solar') {
     ctx.lineWidth = 1;
     for (const pl of form.planets) {
@@ -1053,6 +1135,7 @@ const commands = {
   'scale.to': d => d && (form.kind ? (cam.zoomT = clamp(d.scale, 0.35, 4)) : scaleTo(d.scale)),
   'duplicate': () => duplicate(),
   'form': d => d && showForm(d.kind, d),
+  'locate': d => locate(d),
   'form.dismiss': () => dismissForm(),
   'form.faces': d => setFaces(d && d.mode),
   'form.rotate': d => d && formRotate(d.dx || 0, d.dy || 0),
@@ -1080,7 +1163,7 @@ window.MahoragaTabs = {
   get state() {
     const planets = form.kind === 'solar' ? form.planets.map(pl => { const c = planetCenter(pl), q = project(c[0], c[1], c[2]); return { name: pl.name, x: q.x, y: q.y }; }) : [];
     return { ...deckInfo(), view: { ...view }, scrub: scrub.s, thinking, petals: sprites === realSprites ? 'real' : 'drawn',
-      form: form.kind ? { kind: form.kind, faces: form.faces, picked: form.picked ? form.picked.name : null, zoom: cam.zoom, settled: form.settled, total: form.total, planets } : null };
+      form: form.kind ? { kind: form.kind, faces: form.faces, picked: form.picked ? form.picked.name : null, zoom: cam.zoom, settled: form.settled, total: form.total, planets, place: form.map ? form.map.place : undefined } : null };
   },
 };
 
@@ -1229,7 +1312,7 @@ function doClick() {
 }
 for (const [kind, def] of Object.entries(FORMS)) {
   if (kind === 'text') continue;
-  const b = document.createElement('button'); b.dataset.cmd = 'form.' + kind; b.textContent = def.label || kind[0].toUpperCase() + kind.slice(1);
+  const b = document.createElement('button'); b.dataset.cmd = def.locate ? 'locate' : 'form.' + kind; b.textContent = def.label || kind[0].toUpperCase() + kind.slice(1);
   document.getElementById('grp-' + def.group).appendChild(b);
 }
 document.querySelectorAll('.hud button').forEach(b => b.onclick = () => {
@@ -1261,6 +1344,7 @@ window.addEventListener('keydown', e => {
   else if (e.key === '2') MahoragaTabs.send('form', { kind: 'brain' });
   else if (e.key === '3') MahoragaTabs.send('form', { kind: 'solar' });
   else if (e.key === '0') MahoragaTabs.send('form.dismiss');
+  else if (e.key === '4') MahoragaTabs.send('locate');
   else if (e.key === 'f' || e.key === 'F') MahoragaTabs.send('form.faces');
   else if (e.key === 'u' || e.key === 'U') MahoragaTabs.send('unpick');
   else if (e.key === '+' || e.key === '=') MahoragaTabs.send('scale', { factor: 1.1 });
